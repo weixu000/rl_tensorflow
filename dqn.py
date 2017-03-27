@@ -1,6 +1,5 @@
 import tensorflow as tf
 import numpy as np
-import random
 from collections import deque
 import gym
 import json
@@ -114,7 +113,9 @@ class FCQN:
 
     def sample_memory(self):
         # 随机抽取batch_size个记忆，分别建立状态、动作、Q、下一状态、完成与否的矩阵（一行对应一个记忆）
-        batch = random.sample(self.memory, min(self.BATCH_SIZE, len(self.memory)))
+        # batch = random.sample(self.memory, min(self.BATCH_SIZE, len(self.memory)))
+        batch_ind = np.random.choice(len(self.memory), min(self.BATCH_SIZE, len(self.memory)), False)
+        batch = [m for i, m in enumerate(self.memory) if i in batch_ind]
         return [[m[i] for m in batch] for i in range(5)]
 
     def train_sess(self, sess, writer, memory_batch, y_batch):
@@ -165,30 +166,18 @@ class FCQN:
 class OriginalFCQN(FCQN):
     NAME = 'Original'
 
-    INITIAL_LEARNING_RATE = 0.001
-    DECAY_STEPS = 3000
-    DECAY_RATE = 0.95
-    INITIAL_EPS = 0.8
-    EPS_DECAY_RATE = 0.99
-    EPS_DECAY_STEP = 5000
-    MEMORY_SIZE = 10000
-    GAMMA = 0.9
-    BATCH_SIZE = 30
-    TRAIN_REPEAT = 2
-
-    # INITIAL_LEARNING_RATE = 0.0003
-    # DECAY_STEPS = 50000
-    # DECAY_RATE = 0.99
-    # INITIAL_EPS = 1
-    # EPS_DECAY_RATE = 0.95
-    # EPS_DECAY_STEP = 2000
-    # MEMORY_SIZE = 10000
-    # SUMMARY_WHEN = 500
-    # GAMMA = 0.95
-    # BATCH_SIZE = 50
-    # TRAIN_REPEAT = 2
-
     def __init__(self, env, hidden_layers, env_name, log_dir):
+        self.INITIAL_LEARNING_RATE = 0.001
+        self.DECAY_STEPS = 3000
+        self.DECAY_RATE = 0.95
+        self.INITIAL_EPS = 0.8
+        self.EPS_DECAY_RATE = 0.99
+        self.EPS_DECAY_STEP = 5000
+        self.MEMORY_SIZE = 10000
+        self.GAMMA = 0.9
+        self.BATCH_SIZE = 30
+        self.TRAIN_REPEAT = 2
+
         super().__init__(env, hidden_layers, env_name, log_dir)
 
         # 输出日志
@@ -223,18 +212,18 @@ class OriginalFCQN(FCQN):
 class DoubleFCQN(FCQN):
     NAME = 'Double'
 
-    INITIAL_LEARNING_RATE = 0.001
-    DECAY_STEPS = 5000
-    DECAY_RATE = 0.9
-    INITIAL_EPS = 0.5
-    EPS_DECAY_RATE = 0.9
-    EPS_DECAY_STEP = 5000
-    MEMORY_SIZE = 10000
-    GAMMA = 0.9
-    BATCH_SIZE = 50
-    TRAIN_REPEAT = 2
-
     def __init__(self, env, hidden_layers, env_name, log_dir):
+        self.INITIAL_LEARNING_RATE = 0.001
+        self.DECAY_STEPS = 5000
+        self.DECAY_RATE = 0.9
+        self.INITIAL_EPS = 0.5
+        self.EPS_DECAY_RATE = 0.9
+        self.EPS_DECAY_STEP = 5000
+        self.MEMORY_SIZE = 10000
+        self.GAMMA = 0.9
+        self.BATCH_SIZE = 50
+        self.TRAIN_REPEAT = 2
+
         super().__init__(env, hidden_layers, env_name, log_dir)
 
         self.sess = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q1/', self.graph)),
@@ -262,8 +251,13 @@ class DoubleFCQN(FCQN):
             state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch = self.sample_memory()
 
             # 任取一个训练
-            random.shuffle(self.sess)
-            (sess1, writer1), (sess2, writer2) = self.sess
+            # random.shuffle(self.sess)
+            # (sess1, writer1), (sess2, writer2) = self.sess
+            # 任取一个训练
+            if np.random.rand() >= 0.5:
+                (sess1, writer1), (sess2, writer2) = self.sess
+            else:
+                (sess2, writer2), (sess1, writer1) = self.sess
 
             # sess1计算argmaxQ的onehot表示
             a = np.eye(self.layers_n[-1])[
