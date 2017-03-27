@@ -9,14 +9,14 @@ import time
 
 
 class FCQN:
-    def __init__(self, env, hidden_layers, env_name, log_dir):
+    def __init__(self, env, hidden_layers, env_name):
         # 要求状态为向量，动作离散
         assert type(env.action_space) == gym.spaces.discrete.Discrete and \
                type(env.observation_space) == gym.spaces.box.Box
 
         # 建立若干成员变量
         self.env = env
-        self.log_dir = '/'.join(['log', env_name, self.NAME, log_dir, time.strftime('%m-%d-%H-%M')]) + '/'
+        self.log_dir = '/'.join(['log', env_name, self.NAME, time.strftime('%m-%d-%H-%M')]) + '/'
         self.n_episode = 0
         self.eps = self.INITIAL_EPS
 
@@ -43,9 +43,10 @@ class FCQN:
                                                   name='sample_Q')
                 self.loss_vec = self.y - self.action_value
                 self.loss = tf.reduce_mean(tf.square(self.loss_vec), name='loss')
-                tf.summary.scalar('_loss', self.loss)
 
-                self.train_step = tf.train.AdamOptimizer(self.LEARNING_RATE).minimize(self.loss)
+                optimizer = tf.train.AdamOptimizer(self.LEARNING_RATE)
+                self.compute_grad = optimizer.compute_gradients(self.loss)
+                self.apply_grad = optimizer.apply_gradients(self.compute_grad)
                 # self.global_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='global_step')
                 # self.learning_rate = tf.train.exponential_decay(self.INITIAL_LEARNING_RATE, self.global_step,
                 #                                                 self.DECAY_STEPS, self.DECAY_RATE, staircase=False,
@@ -53,7 +54,11 @@ class FCQN:
                 # self.train_step = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss,
                 #                                                                                  self.global_step)
 
+            # 将误差loss和梯度grad都记录下来
             with tf.name_scope('evaluate'):
+                tf.summary.scalar('_loss', self.loss)
+                for grad, var in self.compute_grad: tf.summary.histogram(var.name + '_grad', grad)
+                self.compute_grad = [x[0] for x in self.compute_grad]  # 留下梯度，去掉变量，方便train_sess
                 self.summary = tf.summary.merge_all()
 
             self.init = tf.global_variables_initializer()
@@ -108,10 +113,11 @@ class FCQN:
         """
         state_batch, action_batch, _, nxt_state_batch, done_batch = batch
 
-        run_ans = sess.run([self.train_step, self.summary], feed_dict={self.layers[0]: state_batch,
-                                                                       self.action_onehot: action_batch,
-                                                                       self.y: y_batch})
-        writer.add_summary(run_ans[1], self.n_episode)
+        run_res = sess.run([self.compute_grad, self.apply_grad, self.summary],
+                           feed_dict={self.layers[0]: state_batch,
+                                      self.action_onehot: action_batch,
+                                      self.y: y_batch})
+        writer.add_summary(run_res[-1], self.n_episode)
 
     def save_hyperparameters(self):
         with open(self.log_dir + 'parameters.json', 'w') as f:
@@ -127,8 +133,8 @@ class FCQN:
 
 
 class RandomReplay(FCQN):
-    def __init__(self, env, hidden_layers, env_name, log_dir):
-        super().__init__(env, hidden_layers, env_name, log_dir)
+    def __init__(self, env, hidden_layers, env_name):
+        super().__init__(env, hidden_layers, env_name)
         self.memory = deque(maxlen=self.MEMORY_SIZE)
 
     def perceive(self, state, action, reward, nxt_state, done):
@@ -140,22 +146,22 @@ class RandomReplay(FCQN):
         # 随机抽取batch_size个记忆，分别建立状态、动作、Q、下一状态、完成与否的矩阵（一行对应一个记忆）
         batch_ind = np.random.choice(len(self.memory), min(self.BATCH_SIZE, len(self.memory)), False)
         batch = [m for i, m in enumerate(self.memory) if i in batch_ind]
-        return [[m[i] for m in batch] for i in range(5)], batch_ind
+        return [[m[i] for m in batch] for i in range(5)], None  # RandomReplay不需要batch_ind
 
 
 class RankBasedPrioritizedReplay(FCQN):
     class Experience(list):
         def __lt__(self, other): return self[0] < other[0]
 
-    def __init__(self, env, hidden_layers, env_name, log_dir):
-        super().__init__(env, hidden_layers, env_name, log_dir)
-        self.memory = []
+    def __init__(self, env, hidden_layers, env_name):
+        super().__init__(env, hidden_layers, env_name)
+        self.memory = deque(maxlen=self.MEMORY_SIZE)
 
     def perceive(self, state, action, reward, nxt_state, done):
         experience = list(self.process_experience(state, action, reward, nxt_state, done))
         experience = self.Experience(([self.memory[0][-1] + 1] if len(self.memory) else [0]) + experience)
         heapq.heappush(self.memory, experience)
-        if len(self.memory) >= self.MEMORY_SIZE: del self.memory[int(-0.1 * len(self.memory)):]
+        # if len(self.memory) >= self.MEMORY_SIZE: del self.memory[int(-0.1 * len(self.memory)):]
         super().perceive(state, action, reward, nxt_state, done)
 
     def sample_memory(self):
@@ -181,17 +187,17 @@ class RankBasedPrioritizedReplay(FCQN):
 class OriginalFCQN(RandomReplay):
     NAME = 'Original'
 
-    def __init__(self, env, hidden_layers, env_name, log_dir):
-        self.LEARNING_RATE = 0.001
+    def __init__(self, env, hidden_layers, env_name):
+        self.LEARNING_RATE = 1E-3
         self.INITIAL_EPS = 1
-        self.EPS_DECAY_RATE = 0.95
-        self.EPS_DECAY_STEP = 100
+        self.EPS_DECAY_RATE = 0.9
+        self.EPS_DECAY_STEP = 1000
         self.MEMORY_SIZE = 10000
-        self.GAMMA = 0.95
+        self.GAMMA = 0.9
         self.BATCH_SIZE = 100
         self.TRAIN_REPEAT = 2
 
-        super().__init__(env, hidden_layers, env_name, log_dir)
+        super().__init__(env, hidden_layers, env_name)
 
         # 输出日志
         self.summary_writer = tf.summary.FileWriter(self.log_dir, self.graph)
@@ -226,17 +232,17 @@ class OriginalFCQN(RandomReplay):
 class DoubleFCQN(RandomReplay):
     NAME = 'Double'
 
-    def __init__(self, env, hidden_layers, env_name, log_dir):
-        self.LEARNING_RATE = 0.001
-        self.INITIAL_EPS = 1
+    def __init__(self, env, hidden_layers, env_name):
+        self.LEARNING_RATE = 1E-3
+        self.INITIAL_EPS = 0.5
         self.EPS_DECAY_RATE = 0.9
-        self.EPS_DECAY_STEP = 1000
+        self.EPS_DECAY_STEP = 5000
         self.MEMORY_SIZE = 10000
         self.GAMMA = 0.9
-        self.BATCH_SIZE = 1000
+        self.BATCH_SIZE = 100
         self.TRAIN_REPEAT = 2
 
-        super().__init__(env, hidden_layers, env_name, log_dir)
+        super().__init__(env, hidden_layers, env_name)
 
         # 初始化tensorflow
         self.sess = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q1/', self.graph)),

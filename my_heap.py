@@ -24,3 +24,11 @@ def heapify_single(heap, ind):
     heapify_up(heap, ind)
     heapify_down(heap, ind)
     pass
+
+
+def check_heap_invariant(heap):
+    for parent in range(len(heap) // 2):
+        for child in 2 * parent + 1, 2 * parent + 2:
+            if child < len(heap) and heap[child] < heap[parent]:
+                print('Heap invariant broken: ', parent, child)
+                break
