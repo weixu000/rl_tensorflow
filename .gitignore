@@ -140,3 +140,13 @@ $RECYCLE.BIN/
 
 # Pycharm project folder
 .idea/
+
+# =========================
+# For this repo
+# =========================
+
+# Pycharm project folder
+.idea/
+
+# Log files
+log/
