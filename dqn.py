@@ -4,20 +4,20 @@ import random
 from collections import deque
 import gym
 import json
-import heapq
+import time
 
 
 class FCQN:
     SUMMARY_WHEN = 500
 
-    def __init__(self, env, hidden_layers, log_dir):
+    def __init__(self, env, hidden_layers, env_name, log_dir):
         # 要求状态为向量，动作离散
         assert type(env.action_space) == gym.spaces.discrete.Discrete and \
                type(env.observation_space) == gym.spaces.box.Box
 
         # 建立若干成员变量
         self.env = env
-        self.log_dir = 'log/' + log_dir
+        self.log_dir = '/'.join(['log', env_name, self.NAME, log_dir, time.strftime('%m-%d-%H-%M')]) + '/'
         self.memory = deque(maxlen=self.MEMORY_SIZE)
         self.eps = self.INITIAL_EPS
 
@@ -162,41 +162,9 @@ class FCQN:
         return np.reshape(value, np.shape(mesh))
 
 
-class RankBasedPrioritizedReplay(FCQN):
-    class Experience(list):
-        def __lt__(self, other): return self[0] < other[0]
+class OriginalFCQN(FCQN):
+    NAME = 'Original'
 
-    def __init__(self, env, hidden_layers, log_dir):
-        FCQN.__init__(self, env, hidden_layers, log_dir)
-        self.memory = []
-
-    def perceive(self, state, action, reward, nxt_state, done):
-        if len(self.memory) >= self.MEMORY_SIZE: del self.memory[-1]
-        experience = list(self.process_experience(state, action, reward, nxt_state, done))
-        experience = self.Experience(([self.memory[0][0] - 1] if len(self.memory) else [0]) + experience)
-        self.memory.insert(0, experience)
-        self.train()
-
-    def sample_memory(self):
-        sample = set(np.floor(np.random.triangular(0, 0, len(self.memory), (min(self.BATCH_SIZE, len(self.memory)),))))
-        batch = [x[1:] for i, x in enumerate(self.memory) if i in sample]
-        self.memory = [x for i, x in enumerate(self.memory) if i not in sample]
-        heapq.heapify(self.memory)
-        return [[m[i] for m in batch] for i in range(5)]
-
-    def train_sess(self, sess, writer, memory_batch, y_batch):
-        super().train_sess(sess, writer, memory_batch, y_batch)
-        state_batch, action_batch, r_batch, nxt_state_batch, done_batch = memory_batch
-
-        feed_dict = {self.layers[0]: state_batch,
-                     self.action_onehot: action_batch,
-                     self.y: y_batch}
-        errors = -np.abs(sess.run(self.loss_vec, feed_dict=feed_dict))
-        memory_batch = list(map(self.Experience, zip(errors, *memory_batch)))
-        for x in memory_batch: heapq.heappush(self.memory, x)
-
-
-class OriginalFCQN(RankBasedPrioritizedReplay):
     INITIAL_LEARNING_RATE = 0.001
     DECAY_STEPS = 3000
     DECAY_RATE = 0.95
@@ -220,8 +188,8 @@ class OriginalFCQN(RankBasedPrioritizedReplay):
     # BATCH_SIZE = 50
     # TRAIN_REPEAT = 2
 
-    def __init__(self, env, hidden_layers, log_dir):
-        super().__init__(env, hidden_layers, log_dir)
+    def __init__(self, env, hidden_layers, env_name, log_dir):
+        super().__init__(env, hidden_layers, env_name, log_dir)
 
         # 输出日志
         self.summary_writer = tf.summary.FileWriter(self.log_dir, self.graph)
@@ -253,6 +221,8 @@ class OriginalFCQN(RankBasedPrioritizedReplay):
 
 
 class DoubleFCQN(FCQN):
+    NAME = 'Double'
+
     INITIAL_LEARNING_RATE = 0.001
     DECAY_STEPS = 5000
     DECAY_RATE = 0.9
@@ -264,8 +234,8 @@ class DoubleFCQN(FCQN):
     BATCH_SIZE = 50
     TRAIN_REPEAT = 2
 
-    def __init__(self, env, hidden_layers, log_dir):
-        super().__init__(env, hidden_layers, log_dir)
+    def __init__(self, env, hidden_layers, env_name, log_dir):
+        super().__init__(env, hidden_layers, env_name, log_dir)
 
         self.sess = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q1/', self.graph)),
                      (tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q2/', self.graph))]

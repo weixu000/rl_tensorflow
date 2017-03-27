@@ -1,5 +1,5 @@
 import gym
-import dqn2 as dqn
+import dqn
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
@@ -34,7 +34,6 @@ def play(env, action_select, perceive, render=False):
 def train_episodes(n_episodes=10000):
     env = gym.make(ENV_NAME)
     agent = dqn.DoubleFCQN(env, [20, 10, 5], ENV_NAME, '1')  # 三层隐藏层
-    # agent = dqn.DoubleFCQN(env, [20, 10, 5], ENV_NAME+'/')  # 三层隐藏层
     agent.save_hyperparameters()
 
     rewards, aver_rewards = [], []
