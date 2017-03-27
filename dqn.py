@@ -3,12 +3,12 @@ import numpy as np
 from collections import deque
 import gym
 import json
+import heapq
+import my_heap
 import time
 
 
 class FCQN:
-    SUMMARY_WHEN = 500
-
     def __init__(self, env, hidden_layers, env_name, log_dir):
         # 要求状态为向量，动作离散
         assert type(env.action_space) == gym.spaces.discrete.Discrete and \
@@ -17,14 +17,14 @@ class FCQN:
         # 建立若干成员变量
         self.env = env
         self.log_dir = '/'.join(['log', env_name, self.NAME, log_dir, time.strftime('%m-%d-%H-%M')]) + '/'
-        self.memory = deque(maxlen=self.MEMORY_SIZE)
+        self.n_episode = 0
         self.eps = self.INITIAL_EPS
 
         self.create_graph(hidden_layers)
 
     def create_graph(self, hidden_layers):
-        # 构建网络
         self.layers_n = [self.env.observation_space.shape[0]] + hidden_layers + [self.env.action_space.n]  # 每层网络中神经元个数
+        # 构建网络
         self.graph = tf.Graph()
         with self.graph.as_default():
             with tf.name_scope('input_layer'):
@@ -44,17 +44,17 @@ class FCQN:
                 self.loss_vec = self.y - self.action_value
                 self.loss = tf.reduce_mean(tf.square(self.loss_vec), name='loss')
                 tf.summary.scalar('_loss', self.loss)
-                self.global_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='global_step')
-                self.learning_rate = tf.train.exponential_decay(self.INITIAL_LEARNING_RATE, self.global_step,
-                                                                self.DECAY_STEPS, self.DECAY_RATE, staircase=False,
-                                                                name='learning_rate')
-                self.train_step = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss,
-                                                                                                 self.global_step)
+
+                self.train_step = tf.train.AdamOptimizer(self.LEARNING_RATE).minimize(self.loss)
+                # self.global_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='global_step')
+                # self.learning_rate = tf.train.exponential_decay(self.INITIAL_LEARNING_RATE, self.global_step,
+                #                                                 self.DECAY_STEPS, self.DECAY_RATE, staircase=False,
+                #                                                 name='learning_rate')
+                # self.train_step = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss,
+                #                                                                                  self.global_step)
 
             with tf.name_scope('evaluate'):
                 self.summary = tf.summary.merge_all()
-                self.policy = tf.argmax(self.layers[-1], axis=1)
-                self.state_value = tf.reduce_max(self.layers[-1], axis=1)
 
             self.init = tf.global_variables_initializer()
 
@@ -84,17 +84,8 @@ class FCQN:
         return np.argmax(self[state])
 
     def epsilon_greedy(self, state):
-        # self.eps -= (self.eps - self.FINAL_EPS) / self.EPS_DECAY  # 每次等比减小eps
         self.eps *= self.EPS_DECAY_RATE ** (1 / self.EPS_DECAY_STEP)
         return self.greedy_action(state) if np.random.rand() > self.eps else self.env.action_space.sample()
-
-    def softmax(self, state):
-        ts = np.exp(self[state])
-        ts /= ts.sum()
-        r = np.random.rand()
-        for i, t in enumerate(ts):
-            r -= t
-            if r <= 0: return i
 
     def process_experience(self, state, action, reward, nxt_state, done):
         # 将动作单个数值转化成onehot向量：2变成[0,0,1,0,0]
@@ -104,78 +95,101 @@ class FCQN:
         # 正规化状态
         state = self.normalize_state(state)
         nxt_state = self.normalize_state(nxt_state)
+
         return state, onehot, reward, nxt_state, done
 
     def perceive(self, state, action, reward, nxt_state, done):
-        # 将处理后的经验加入记忆中，超出存储的自动剔除
-        self.memory.append(self.process_experience(state, action, reward, nxt_state, done))
+        if done: self.n_episode += 1
         self.train()
 
-    def sample_memory(self):
-        # 随机抽取batch_size个记忆，分别建立状态、动作、Q、下一状态、完成与否的矩阵（一行对应一个记忆）
-        # batch = random.sample(self.memory, min(self.BATCH_SIZE, len(self.memory)))
-        batch_ind = np.random.choice(len(self.memory), min(self.BATCH_SIZE, len(self.memory)), False)
-        batch = [m for i, m in enumerate(self.memory) if i in batch_ind]
-        return [[m[i] for m in batch] for i in range(5)]
-
-    def train_sess(self, sess, writer, memory_batch, y_batch):
+    def train_sess(self, sess, writer, batch, batch_ind, y_batch):
         """
         输入数据，训练网络
         """
-        state_batch, action_batch, r_batch, nxt_state_batch, done_batch = memory_batch
+        state_batch, action_batch, _, nxt_state_batch, done_batch = batch
 
-        feed_dict = {self.layers[0]: state_batch,
-                     self.action_onehot: action_batch,
-                     self.y: y_batch}
-
-        if sess.run(self.global_step) % self.SUMMARY_WHEN:
-            sess.run(self.train_step, feed_dict=feed_dict)
-        else:
-            run_ans = sess.run([self.train_step, self.summary], feed_dict=feed_dict)
-            writer.add_summary(run_ans[1], sess.run(self.global_step))
+        run_ans = sess.run([self.train_step, self.summary], feed_dict={self.layers[0]: state_batch,
+                                                                       self.action_onehot: action_batch,
+                                                                       self.y: y_batch})
+        writer.add_summary(run_ans[1], self.n_episode)
 
     def save_hyperparameters(self):
         with open(self.log_dir + 'parameters.json', 'w') as f:
-            json.dump(dict(filter(lambda x: x[0][0].isupper(), self.__class__.__dict__.items())), f,
+            json.dump(dict(filter(lambda x: x[0][0].isupper(), self.__dict__.items())), f,
                       indent=4, sort_keys=True)
 
     def load_hyperparameters(self):
         try:
             with open(self.log_dir + '/parameters.json', 'r') as f:
-                self.__class__.__dict__.update(json.load(f))
+                self.__dict__.update(json.load(f))
         except:
             pass
 
-    def generate_state_mesh(self, resolution):
-        assert len(resolution) == self.layers_n[0]
-        resolution = [np.linspace(self.env.observation_space.low[i], self.env.observation_space.high[i], resolution[i])
-                      for i in range(self.layers_n[0])]
-        return np.meshgrid(resolution)
 
-    def generate_policy(self, sess, resolution):
-        mesh = self.generate_state_mesh(resolution)
-        policy = sess.run(self.policy, feed_dict={self.layers[0]: np.transpose(mesh)})
-        return np.reshape(policy, np.shape(mesh))
+class RandomReplay(FCQN):
+    def __init__(self, env, hidden_layers, env_name, log_dir):
+        super().__init__(env, hidden_layers, env_name, log_dir)
+        self.memory = deque(maxlen=self.MEMORY_SIZE)
 
-    def generate_state_value(self, sess, resolution):
-        mesh = self.generate_state_mesh(resolution)
-        value = sess.run(self.state_value, feed_dict={self.layers[0]: np.transpose(mesh)})
-        return np.reshape(value, np.shape(mesh))
+    def perceive(self, state, action, reward, nxt_state, done):
+        # 将处理后的经验加入记忆中，超出存储的自动剔除
+        self.memory.append(self.process_experience(state, action, reward, nxt_state, done))
+        super().perceive(state, action, reward, nxt_state, done)
+
+    def sample_memory(self):
+        # 随机抽取batch_size个记忆，分别建立状态、动作、Q、下一状态、完成与否的矩阵（一行对应一个记忆）
+        batch_ind = np.random.choice(len(self.memory), min(self.BATCH_SIZE, len(self.memory)), False)
+        # print('Sample memory ind: ', batch_ind)
+        batch = [m for i, m in enumerate(self.memory) if i in batch_ind]
+        return [[m[i] for m in batch] for i in range(5)], batch_ind
 
 
-class OriginalFCQN(FCQN):
+class RankBasedPrioritizedReplay(FCQN):
+    class Experience(list):
+        def __lt__(self, other): return self[0] < other[0]
+
+    def __init__(self, env, hidden_layers, env_name, log_dir):
+        super().__init__(env, hidden_layers, env_name, log_dir)
+        self.memory = []
+
+    def perceive(self, state, action, reward, nxt_state, done):
+        experience = list(self.process_experience(state, action, reward, nxt_state, done))
+        experience = self.Experience(([self.memory[0][-1] + 1] if len(self.memory) else [0]) + experience)
+        heapq.heappush(self.memory, experience)
+        if len(self.memory) >= self.MEMORY_SIZE: del self.memory[int(-0.1 * len(self.memory)):]
+        super().perceive(state, action, reward, nxt_state, done)
+
+    def sample_memory(self):
+        sample = np.random.power(3, self.BATCH_SIZE) * len(self.memory)
+        sample = set(np.floor(sample).astype(int))
+        batch = [x[1:] for i, x in enumerate(self.memory) if i in sample]
+        return [[m[i] for m in batch] for i in range(5)], list(sample)
+
+    def train_sess(self, sess, writer, batch, batch_ind, y_batch):
+        super().train_sess(sess, writer, batch, batch_ind, y_batch)
+        state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
+
+        errors = np.abs(sess.run(self.loss_vec, feed_dict={self.layers[0]: state_batch,
+                                                           self.action_onehot: action_batch,
+                                                           self.y: y_batch}))
+
+        memory_batch = list(map(self.Experience, zip(errors, *batch)))
+        for i, x in zip(batch_ind, memory_batch):
+            self.memory[i] = x
+            my_heap.heapify_single(self.memory, i)
+
+
+class OriginalFCQN(RandomReplay):
     NAME = 'Original'
 
     def __init__(self, env, hidden_layers, env_name, log_dir):
-        self.INITIAL_LEARNING_RATE = 0.001
-        self.DECAY_STEPS = 3000
-        self.DECAY_RATE = 0.95
-        self.INITIAL_EPS = 0.8
-        self.EPS_DECAY_RATE = 0.99
-        self.EPS_DECAY_STEP = 5000
+        self.LEARNING_RATE = 0.005
+        self.INITIAL_EPS = 1
+        self.EPS_DECAY_RATE = 0.95
+        self.EPS_DECAY_STEP = 100
         self.MEMORY_SIZE = 10000
-        self.GAMMA = 0.9
-        self.BATCH_SIZE = 30
+        self.GAMMA = 0.95
+        self.BATCH_SIZE = 100
         self.TRAIN_REPEAT = 2
 
         super().__init__(env, hidden_layers, env_name, log_dir)
@@ -199,23 +213,22 @@ class OriginalFCQN(FCQN):
         """
         # 重复训练train_repeat次
         for _ in range(self.TRAIN_REPEAT):
-            state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch = self.sample_memory()
+            batch, batch_ind = self.sample_memory()
+            state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
             # 计算公式中的maxQ，如果完成设为0
             nxt_qs = np.max(self.sess.run(self.layers[-1], feed_dict={self.layers[0]: nxt_state_batch}), axis=1)
             nxt_qs[done_batch] = 0
             y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
 
-            self.train_sess(self.sess, self.summary_writer, batch, y_batch)
+            self.train_sess(self.sess, self.summary_writer, batch, batch_ind, y_batch)
 
 
-class DoubleFCQN(FCQN):
+class DoubleFCQN(RandomReplay):
     NAME = 'Double'
 
     def __init__(self, env, hidden_layers, env_name, log_dir):
-        self.INITIAL_LEARNING_RATE = 0.001
-        self.DECAY_STEPS = 5000
-        self.DECAY_RATE = 0.9
+        self.LEARNING_RATE = 0.001
         self.INITIAL_EPS = 0.5
         self.EPS_DECAY_RATE = 0.9
         self.EPS_DECAY_STEP = 5000
@@ -226,10 +239,9 @@ class DoubleFCQN(FCQN):
 
         super().__init__(env, hidden_layers, env_name, log_dir)
 
+        # 初始化tensorflow
         self.sess = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q1/', self.graph)),
                      (tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q2/', self.graph))]
-
-        # 初始化tensorflow
         for s in self.sess: s[0].run(self.init)
 
     def __getitem__(self, state):
@@ -248,16 +260,15 @@ class DoubleFCQN(FCQN):
         """
         # 重复训练train_repeat次
         for _ in range(self.TRAIN_REPEAT):
-            state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch = self.sample_memory()
+            batch, batch_ind = self.sample_memory()
+            state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
-            # 任取一个训练
-            # random.shuffle(self.sess)
-            # (sess1, writer1), (sess2, writer2) = self.sess
             # 任取一个训练
             if np.random.rand() >= 0.5:
                 (sess1, writer1), (sess2, writer2) = self.sess
             else:
                 (sess2, writer2), (sess1, writer1) = self.sess
+            # print('DDQN training sess1: ', sess1, ' sess2: ', sess2)
 
             # sess1计算argmaxQ的onehot表示
             a = np.eye(self.layers_n[-1])[
@@ -267,4 +278,4 @@ class DoubleFCQN(FCQN):
             nxt_qs[done_batch] = 0  # 如果完成设为0
             y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
 
-            self.train_sess(sess1, writer1, batch, y_batch)
+            self.train_sess(sess1, writer1, batch, batch_ind, y_batch)

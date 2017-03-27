@@ -49,15 +49,8 @@ def train_episodes(n_episodes=10000):
     else:
         print("Maximum {} of episodes exceeded".format(n_episodes))
 
-    try:
-        with open(agent.log_dir + 'rewards.pickle', 'r+b') as f:
-            last = pickle.load(f)
-            last.append((rewards, aver_rewards))
-            f.truncate()
-            pickle.dump((rewards, aver_rewards), f)
-    except:
-        with open(agent.log_dir + 'rewards.pickle', 'wb') as f:
-            pickle.dump([(rewards, aver_rewards)], f)
+    with open(agent.log_dir + 'rewards.pickle', 'wb') as f:
+        pickle.dump((rewards, aver_rewards), f)
 
     plt.plot(rewards, label='Return for each episode')
     plt.plot(aver_rewards, label='Average return for last {} episodes'.format(N_TEST))
