@@ -139,7 +139,6 @@ class RandomReplay(FCQN):
     def sample_memory(self):
         # 随机抽取batch_size个记忆，分别建立状态、动作、Q、下一状态、完成与否的矩阵（一行对应一个记忆）
         batch_ind = np.random.choice(len(self.memory), min(self.BATCH_SIZE, len(self.memory)), False)
-        # print('Sample memory ind: ', batch_ind)
         batch = [m for i, m in enumerate(self.memory) if i in batch_ind]
         return [[m[i] for m in batch] for i in range(5)], batch_ind
 
@@ -183,7 +182,7 @@ class OriginalFCQN(RandomReplay):
     NAME = 'Original'
 
     def __init__(self, env, hidden_layers, env_name, log_dir):
-        self.LEARNING_RATE = 0.005
+        self.LEARNING_RATE = 0.001
         self.INITIAL_EPS = 1
         self.EPS_DECAY_RATE = 0.95
         self.EPS_DECAY_STEP = 100
@@ -229,12 +228,12 @@ class DoubleFCQN(RandomReplay):
 
     def __init__(self, env, hidden_layers, env_name, log_dir):
         self.LEARNING_RATE = 0.001
-        self.INITIAL_EPS = 0.5
+        self.INITIAL_EPS = 1
         self.EPS_DECAY_RATE = 0.9
-        self.EPS_DECAY_STEP = 5000
+        self.EPS_DECAY_STEP = 1000
         self.MEMORY_SIZE = 10000
         self.GAMMA = 0.9
-        self.BATCH_SIZE = 50
+        self.BATCH_SIZE = 1000
         self.TRAIN_REPEAT = 2
 
         super().__init__(env, hidden_layers, env_name, log_dir)
@@ -268,7 +267,6 @@ class DoubleFCQN(RandomReplay):
                 (sess1, writer1), (sess2, writer2) = self.sess
             else:
                 (sess2, writer2), (sess1, writer1) = self.sess
-            # print('DDQN training sess1: ', sess1, ' sess2: ', sess2)
 
             # sess1计算argmaxQ的onehot表示
             a = np.eye(self.layers_n[-1])[
