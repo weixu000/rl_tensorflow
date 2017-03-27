@@ -155,13 +155,13 @@ class RankBasedPrioritizedReplay(FCQN):
 
     def __init__(self, env, hidden_layers, env_name):
         super().__init__(env, hidden_layers, env_name)
-        self.memory = deque(maxlen=self.MEMORY_SIZE)
+        self.memory = []
 
     def perceive(self, state, action, reward, nxt_state, done):
         experience = list(self.process_experience(state, action, reward, nxt_state, done))
         experience = self.Experience(([self.memory[0][-1] + 1] if len(self.memory) else [0]) + experience)
         heapq.heappush(self.memory, experience)
-        # if len(self.memory) >= self.MEMORY_SIZE: del self.memory[int(-0.1 * len(self.memory)):]
+        if len(self.memory) >= self.MEMORY_SIZE: del self.memory[int(-0.1 * len(self.memory)):]
         super().perceive(state, action, reward, nxt_state, done)
 
     def sample_memory(self):
@@ -229,17 +229,17 @@ class OriginalFCQN(RandomReplay):
             self.train_sess(self.sess, self.summary_writer, batch, batch_ind, y_batch)
 
 
-class DoubleFCQN(RandomReplay):
+class DoubleFCQN(RankBasedPrioritizedReplay):
     NAME = 'Double'
 
     def __init__(self, env, hidden_layers, env_name):
-        self.LEARNING_RATE = 1E-3
-        self.INITIAL_EPS = 0.5
+        self.LEARNING_RATE = 2E-3
+        self.INITIAL_EPS = 1
         self.EPS_DECAY_RATE = 0.9
-        self.EPS_DECAY_STEP = 5000
+        self.EPS_DECAY_STEP = 1000
         self.MEMORY_SIZE = 10000
         self.GAMMA = 0.9
-        self.BATCH_SIZE = 100
+        self.BATCH_SIZE = 50
         self.TRAIN_REPEAT = 2
 
         super().__init__(env, hidden_layers, env_name)

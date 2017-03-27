@@ -31,4 +31,6 @@ def check_heap_invariant(heap):
         for child in 2 * parent + 1, 2 * parent + 2:
             if child < len(heap) and heap[child] < heap[parent]:
                 print('Heap invariant broken: ', parent, child)
-                break
+                return
+    else:
+        print('Heap invariant holds')
