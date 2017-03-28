@@ -154,21 +154,37 @@ class RankBasedPrioritizedReplay(FCQN):
         def __lt__(self, other): return self[0] < other[0]
 
     def __init__(self, env, hidden_layers, env_name):
+        self.ALPHA = 3
         super().__init__(env, hidden_layers, env_name)
         self.memory = []
+        # 最近的记忆，尚未训练
+        self.recent_memory = []
 
     def perceive(self, state, action, reward, nxt_state, done):
+        # 插入最近的记忆
         experience = list(self.process_experience(state, action, reward, nxt_state, done))
-        experience = self.Experience(([self.memory[0][-1] + 1] if len(self.memory) else [0]) + experience)
-        heapq.heappush(self.memory, experience)
-        if len(self.memory) >= self.MEMORY_SIZE: del self.memory[int(-0.1 * len(self.memory)):]
+        experience = self.Experience([None] + experience)
+        self.recent_memory.append(experience)
+
+        # 记忆过多，则删除误差较小的1/10
+        if len(self.memory) >= self.MEMORY_SIZE:
+            for _ in range(int(0.1 * len(self.memory))):
+                heapq.heappop(self.memory)
+
         super().perceive(state, action, reward, nxt_state, done)
 
     def sample_memory(self):
-        sample = np.random.power(3, self.BATCH_SIZE) * len(self.memory)
-        sample = set(np.floor(sample).astype(int))
+        # 按指数分布取出记忆
+        sample = np.random.power(self.ALPHA, self.BATCH_SIZE - len(self.recent_memory)) * len(self.memory)
+        sample = list(set(np.floor(sample).astype(int)))
+
+        # 将最近没有训练的记忆加入
+        sample += list(range(len(self.memory), len(self.recent_memory) + len(self.memory)))
+        self.memory += self.recent_memory
+        self.recent_memory = []
+
         batch = [x[1:] for i, x in enumerate(self.memory) if i in sample]
-        return [[m[i] for m in batch] for i in range(5)], list(sample)
+        return [[m[i] for m in batch] for i in range(5)], sample
 
     def train_sess(self, sess, writer, batch, batch_ind, y_batch):
         super().train_sess(sess, writer, batch, batch_ind, y_batch)
@@ -233,7 +249,7 @@ class DoubleFCQN(RankBasedPrioritizedReplay):
     NAME = 'Double'
 
     def __init__(self, env, hidden_layers, env_name):
-        self.LEARNING_RATE = 2E-3
+        self.LEARNING_RATE = 1E-2
         self.INITIAL_EPS = 1
         self.EPS_DECAY_RATE = 0.9
         self.EPS_DECAY_STEP = 1000
