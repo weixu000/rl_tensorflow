@@ -154,7 +154,8 @@ class RankBasedPrioritizedReplay(FCQN):
         def __lt__(self, other): return self[0] < other[0]
 
     def __init__(self, env, hidden_layers, env_name):
-        self.ALPHA = 3
+        self.ALPHA = 3  # 幂分布的指数
+        self.SORT_WHEN = 50  # 何时完全排序记忆
         super().__init__(env, hidden_layers, env_name)
         self.memory = []
         # 最近的记忆，尚未训练
@@ -171,10 +172,13 @@ class RankBasedPrioritizedReplay(FCQN):
             for _ in range(int(0.1 * len(self.memory))):
                 heapq.heappop(self.memory)
 
+        # 记忆较多时，进行排序
+        if not self.n_episode % self.SORT_WHEN: self.memory.sort()
+
         super().perceive(state, action, reward, nxt_state, done)
 
     def sample_memory(self):
-        # 按指数分布取出记忆
+        # 按幂分布取出记忆
         sample = np.random.power(self.ALPHA, self.BATCH_SIZE - len(self.recent_memory)) * len(self.memory)
         sample = list(set(np.floor(sample).astype(int)))
 
