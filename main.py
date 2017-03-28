@@ -49,7 +49,7 @@ def train_episodes(n_episodes=1000):
                 break
         else:
             print("Maximum {} of episodes exceeded".format(n_episodes))
-    except:
+    except KeyboardInterrupt:
         # 强行结束
         # pycharm不能用
         print('Training interrupted by KeyboardInterrupt at {}'.format(i_episode))
