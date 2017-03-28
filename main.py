@@ -31,23 +31,28 @@ def play(env, action_select, perceive, render=False):
         if done: return ret
 
 
-def train_episodes(n_episodes=10000):
+def train_episodes(n_episodes=1000):
     env = gym.make(ENV_NAME)
     agent = dqn.DoubleFCQN(env, [20, 10, 5], ENV_NAME)  # 三层隐藏层
     agent.save_hyperparameters()
 
-    rewards, aver_rewards = [], []
-    for i_episode in range(n_episodes):
-        # if i_episode % N_TEST == 0: play(env, agent.greedy_action, None, True)
-        rewards.append(play(env, agent.epsilon_greedy, agent.perceive))
+    try:
+        rewards, aver_rewards = [], []
+        for i_episode in range(n_episodes):
+            # if i_episode % N_TEST == 0: play(env, agent.greedy_action, None, True)
+            rewards.append(play(env, agent.epsilon_greedy, agent.perceive))
 
-        aver_rewards.append(np.sum(rewards[-min(N_TEST, len(rewards)):]) / min(N_TEST, len(rewards)))
-        print("Episode {} finished with test average reward {:.2f}".format(i_episode, aver_rewards[-1]))
-        if len(rewards) > N_TEST and aver_rewards[-1] >= GOAL:
-            print("Environment solved after {} episodes".format(i_episode))  # 按openai gym 要求完成了环境
-            break
-    else:
-        print("Maximum {} of episodes exceeded".format(n_episodes))
+            aver_rewards.append(np.sum(rewards[-min(N_TEST, len(rewards)):]) / min(N_TEST, len(rewards)))
+            print("Episode {} finished with test average reward {:.2f}".format(i_episode, aver_rewards[-1]))
+            if len(rewards) > N_TEST and aver_rewards[-1] >= GOAL:
+                print("Environment solved after {} episodes".format(i_episode))  # 按openai gym 要求完成了环境
+                break
+        else:
+            print("Maximum {} of episodes exceeded".format(n_episodes))
+    except:
+        # 强行结束
+        # pycharm不能用
+        print('Training interrupted by KeyboardInterrupt at {}'.format(i_episode))
 
     with open(agent.log_dir + 'rewards.pickle', 'wb') as f:
         pickle.dump((rewards, aver_rewards), f)
