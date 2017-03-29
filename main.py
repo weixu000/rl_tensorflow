@@ -31,13 +31,9 @@ def play(env, action_select, perceive, render=False):
         if done: return ret
 
 
-def train_episodes(n_episodes=1000):
-    env = gym.make(ENV_NAME)
-    agent = dqn.DoubleFCQN(env, [20, 10, 5], ENV_NAME)  # 三层隐藏层
-    agent.save_hyperparameters()
-
+def train_episodes(env, agent, n_episodes=500):
+    rewards, aver_rewards = [], []
     try:
-        rewards, aver_rewards = [], []
         for i_episode in range(n_episodes):
             # if i_episode % N_TEST == 0: play(env, agent.greedy_action, None, True)
             rewards.append(play(env, agent.epsilon_greedy, agent.perceive))
@@ -57,6 +53,7 @@ def train_episodes(n_episodes=1000):
     with open(agent.log_dir + 'rewards.pickle', 'wb') as f:
         pickle.dump((rewards, aver_rewards), f)
 
+    # 画图
     plt.plot(rewards, label='Return for each episode')
     plt.plot(aver_rewards, label='Average return for last {} episodes'.format(N_TEST))
     plt.legend(frameon=False)
@@ -65,5 +62,12 @@ def train_episodes(n_episodes=1000):
     plt.show()
 
 
+def main():
+    env = gym.make(ENV_NAME)
+    agent = dqn.DoubleFCQN(env, [20, 10, 5], ENV_NAME)  # 三层隐藏层
+    agent.save_hyperparameters()
+    train_episodes(env, agent)
+
+
 if __name__ == "__main__":
-    train_episodes()
+    main()
