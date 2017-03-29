@@ -4,7 +4,6 @@ from collections import deque
 import gym
 import json
 import heapq
-import my_heap
 import time
 
 
@@ -17,7 +16,8 @@ class FCQN:
         # 建立若干成员变量
         self.env = env
         self.log_dir = '/'.join(['log', env_name, self.NAME, time.strftime('%m-%d-%H-%M')]) + '/'
-        self.n_episode = 0
+        self.n_episodes = 0
+        self.n_timesteps = 0
         self.eps = self.INITIAL_EPS
 
         self.create_graph(hidden_layers)
@@ -104,7 +104,8 @@ class FCQN:
         return state, onehot, reward, nxt_state, done
 
     def perceive(self, state, action, reward, nxt_state, done):
-        if done: self.n_episode += 1
+        self.n_timesteps += 1
+        if done: self.n_episodes += 1
         self.train()
 
     def train_sess(self, sess, writer, batch, batch_ind, y_batch):
@@ -117,7 +118,7 @@ class FCQN:
                            feed_dict={self.layers[0]: state_batch,
                                       self.action_onehot: action_batch,
                                       self.y: y_batch})
-        writer.add_summary(run_res[-1], self.n_episode)
+        writer.add_summary(run_res[-1], self.n_episodes)
 
     def save_hyperparameters(self):
         with open(self.log_dir + 'parameters.json', 'w') as f:
@@ -155,7 +156,7 @@ class RankBasedPrioritizedReplay(FCQN):
 
     def __init__(self, env, hidden_layers, env_name):
         self.ALPHA = 3  # 幂分布的指数
-        self.SORT_WHEN = 50  # 何时完全排序记忆
+        self.SORT_WHEN = 500  # 何时完全排序记忆
         super().__init__(env, hidden_layers, env_name)
         self.memory = []
         # 最近的记忆，尚未训练
@@ -168,12 +169,10 @@ class RankBasedPrioritizedReplay(FCQN):
         self.recent_memory.append(experience)
 
         # 记忆过多，则删除误差较小的1/10
-        if len(self.memory) >= self.MEMORY_SIZE:
-            for _ in range(int(0.1 * len(self.memory))):
-                heapq.heappop(self.memory)
+        if len(self.memory) >= self.MEMORY_SIZE: heapq.heappop(self.memory)
 
         # 记忆较多时，进行排序
-        if not self.n_episode % self.SORT_WHEN: self.memory.sort()
+        if not self.n_timesteps % self.SORT_WHEN: self.memory.sort()
 
         super().perceive(state, action, reward, nxt_state, done)
 
@@ -192,16 +191,14 @@ class RankBasedPrioritizedReplay(FCQN):
 
     def train_sess(self, sess, writer, batch, batch_ind, y_batch):
         super().train_sess(sess, writer, batch, batch_ind, y_batch)
-        state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
+        state_batch, action_batch, _, nxt_state_batch, done_batch = batch
 
         errors = np.abs(sess.run(self.loss_vec, feed_dict={self.layers[0]: state_batch,
                                                            self.action_onehot: action_batch,
                                                            self.y: y_batch}))
 
-        memory_batch = list(map(self.Experience, zip(errors, *batch)))
-        for i, x in zip(batch_ind, memory_batch):
-            self.memory[i] = x
-            my_heap.heapify_single(self.memory, i)
+        for i, x in zip(batch_ind, errors): self.memory[i][0] = x
+        heapq.heapify(self.memory)
 
 
 class OriginalFCQN(RandomReplay):
