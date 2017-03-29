@@ -125,13 +125,6 @@ class FCQN:
             json.dump(dict(filter(lambda x: x[0][0].isupper(), self.__dict__.items())), f,
                       indent=4, sort_keys=True)
 
-    def load_hyperparameters(self):
-        try:
-            with open(self.log_dir + '/parameters.json', 'r') as f:
-                self.__dict__.update(json.load(f))
-        except:
-            pass
-
 
 class RandomReplay(FCQN):
     def __init__(self, env, hidden_layers, env_name):
@@ -155,7 +148,7 @@ class RankBasedPrioritizedReplay(FCQN):
         def __lt__(self, other): return self[0] < other[0]
 
     def __init__(self, env, hidden_layers, env_name):
-        self.ALPHA = 3  # 幂分布的指数
+        self.ALPHA = 5  # 幂分布的指数
         self.SORT_WHEN = 500  # 何时完全排序记忆
         super().__init__(env, hidden_layers, env_name)
         self.memory = []
@@ -168,7 +161,7 @@ class RankBasedPrioritizedReplay(FCQN):
         experience = self.Experience([None] + experience)
         self.recent_memory.append(experience)
 
-        # 记忆过多，则删除误差较小的1/10
+        # 记忆过多，则删除误差最小的
         if len(self.memory) >= self.MEMORY_SIZE: heapq.heappop(self.memory)
 
         # 记忆较多时，进行排序
@@ -211,8 +204,7 @@ class OriginalFCQN(RandomReplay):
         self.EPS_DECAY_STEP = 1000
         self.MEMORY_SIZE = 10000
         self.GAMMA = 0.9
-        self.BATCH_SIZE = 100
-        self.TRAIN_REPEAT = 2
+        self.BATCH_SIZE = 200
 
         super().__init__(env, hidden_layers, env_name)
 
@@ -233,31 +225,28 @@ class OriginalFCQN(RandomReplay):
         """
         随机取出记忆中的经验训练网络
         """
-        # 重复训练train_repeat次
-        for _ in range(self.TRAIN_REPEAT):
-            batch, batch_ind = self.sample_memory()
-            state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
+        batch, batch_ind = self.sample_memory()
+        state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
-            # 计算公式中的maxQ，如果完成设为0
-            nxt_qs = np.max(self.sess.run(self.layers[-1], feed_dict={self.layers[0]: nxt_state_batch}), axis=1)
-            nxt_qs[done_batch] = 0
-            y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
+        # 计算公式中的maxQ，如果完成设为0
+        nxt_qs = np.max(self.sess.run(self.layers[-1], feed_dict={self.layers[0]: nxt_state_batch}), axis=1)
+        nxt_qs[done_batch] = 0
+        y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
 
-            self.train_sess(self.sess, self.summary_writer, batch, batch_ind, y_batch)
+        self.train_sess(self.sess, self.summary_writer, batch, batch_ind, y_batch)
 
 
 class DoubleFCQN(RankBasedPrioritizedReplay):
     NAME = 'Double'
 
     def __init__(self, env, hidden_layers, env_name):
-        self.LEARNING_RATE = 1E-2
+        self.LEARNING_RATE = 1E-3
         self.INITIAL_EPS = 1
         self.EPS_DECAY_RATE = 0.9
         self.EPS_DECAY_STEP = 1000
         self.MEMORY_SIZE = 10000
         self.GAMMA = 0.9
-        self.BATCH_SIZE = 50
-        self.TRAIN_REPEAT = 2
+        self.BATCH_SIZE = 200
 
         super().__init__(env, hidden_layers, env_name)
 
@@ -280,23 +269,21 @@ class DoubleFCQN(RankBasedPrioritizedReplay):
         """
         随机取出记忆中的经验训练网络
         """
-        # 重复训练train_repeat次
-        for _ in range(self.TRAIN_REPEAT):
-            batch, batch_ind = self.sample_memory()
-            state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
+        batch, batch_ind = self.sample_memory()
+        state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
-            # 任取一个训练
-            if np.random.rand() >= 0.5:
-                (sess1, writer1), (sess2, writer2) = self.sess
-            else:
-                (sess2, writer2), (sess1, writer1) = self.sess
+        # 任取一个训练
+        if np.random.rand() >= 0.5:
+            (sess1, writer1), (sess2, writer2) = self.sess
+        else:
+            (sess2, writer2), (sess1, writer1) = self.sess
 
-            # sess1计算argmaxQ的onehot表示
-            a = np.eye(self.layers_n[-1])[
-                np.argmax(sess1.run(self.layers[-1], feed_dict={self.layers[0]: nxt_state_batch}), axis=1)]
-            # sess2计算Q
-            nxt_qs = sess2.run(self.action_value, feed_dict={self.layers[0]: nxt_state_batch, self.action_onehot: a})
-            nxt_qs[done_batch] = 0  # 如果完成设为0
-            y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
+        # sess1计算argmaxQ的onehot表示
+        a = np.eye(self.layers_n[-1])[
+            np.argmax(sess1.run(self.layers[-1], feed_dict={self.layers[0]: nxt_state_batch}), axis=1)]
+        # sess2计算Q
+        nxt_qs = sess2.run(self.action_value, feed_dict={self.layers[0]: nxt_state_batch, self.action_onehot: a})
+        nxt_qs[done_batch] = 0  # 如果完成设为0
+        y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
 
-            self.train_sess(sess1, writer1, batch, batch_ind, y_batch)
+        self.train_sess(sess1, writer1, batch, batch_ind, y_batch)
