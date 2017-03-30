@@ -8,6 +8,8 @@ import time
 
 
 class FCQN:
+    WRITE_SUMMARY = True
+
     def __init__(self, env, hidden_layers, env_name):
         # 要求状态为向量，动作离散
         assert type(env.action_space) == gym.spaces.discrete.Discrete and \
@@ -18,7 +20,6 @@ class FCQN:
         self.log_dir = '/'.join(['log', env_name, self.NAME, time.strftime('%m-%d-%H-%M')]) + '/'
         self.n_episodes = 0
         self.n_timesteps = 0
-        self.eps = self.INITIAL_EPS
 
         self.create_graph(hidden_layers)
 
@@ -47,19 +48,15 @@ class FCQN:
                 optimizer = tf.train.AdamOptimizer(self.LEARNING_RATE)
                 self.compute_grad = optimizer.compute_gradients(self.loss)
                 self.apply_grad = optimizer.apply_gradients(self.compute_grad)
-                # self.global_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='global_step')
-                # self.learning_rate = tf.train.exponential_decay(self.INITIAL_LEARNING_RATE, self.global_step,
-                #                                                 self.DECAY_STEPS, self.DECAY_RATE, staircase=False,
-                #                                                 name='learning_rate')
-                # self.train_step = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss,
-                #                                                                                  self.global_step)
 
-            # 将误差loss和梯度grad都记录下来
-            with tf.name_scope('evaluate'):
-                tf.summary.scalar('_loss', self.loss)
-                for grad, var in self.compute_grad: tf.summary.histogram(var.name + '_grad', grad)
-                self.compute_grad = [x[0] for x in self.compute_grad]  # 留下梯度，去掉变量，方便train_sess
-                self.summary = tf.summary.merge_all()
+            if self.WRITE_SUMMARY:
+                # 将误差loss和梯度grad都记录下来
+                with tf.name_scope('evaluate'):
+                    tf.summary.scalar('_loss', self.loss)
+                    for grad, var in self.compute_grad: tf.summary.histogram(var.name + '_grad', grad)
+                    self.summary = tf.summary.merge_all()
+
+            self.compute_grad = [x[0] for x in self.compute_grad]  # 留下梯度，去掉变量，方便train_sess
 
             self.init = tf.global_variables_initializer()
 
@@ -69,8 +66,9 @@ class FCQN:
         """
         W = tf.Variable(tf.truncated_normal([lst, cur]), name='weights')
         b = tf.Variable(tf.constant(0.1, shape=[cur]), name='biases')  # 正偏置促进学习
-        tf.summary.histogram('W', W)
-        tf.summary.histogram('b', b)
+        if self.WRITE_SUMMARY:
+            tf.summary.histogram('W', W)
+            tf.summary.histogram('b', b)
         return tf.matmul(self.layers[-1], W) + b
 
     def normalize_state(self, state):
@@ -89,8 +87,9 @@ class FCQN:
         return np.argmax(self[state])
 
     def epsilon_greedy(self, state):
-        self.eps *= self.EPS_DECAY_RATE ** (1 / self.EPS_DECAY_STEP)
-        return self.greedy_action(state) if np.random.rand() > self.eps else self.env.action_space.sample()
+        eps = self.FINAL_EPS + (self.INITIAL_EPS - self.FINAL_EPS) * self.EPS_DECAY_RATE ** (
+            self.n_timesteps / self.EPS_DECAY_STEP)
+        return self.greedy_action(state) if np.random.rand() > eps else self.env.action_space.sample()
 
     def process_experience(self, state, action, reward, nxt_state, done):
         # 将动作单个数值转化成onehot向量：2变成[0,0,1,0,0]
@@ -114,11 +113,16 @@ class FCQN:
         """
         state_batch, action_batch, _, nxt_state_batch, done_batch = batch
 
-        run_res = sess.run([self.compute_grad, self.apply_grad, self.summary],
-                           feed_dict={self.layers[0]: state_batch,
-                                      self.action_onehot: action_batch,
-                                      self.y: y_batch})
-        writer.add_summary(run_res[-1], self.n_episodes)
+        sess.run([self.compute_grad, self.apply_grad, self.summary],
+                 feed_dict={self.layers[0]: state_batch,
+                            self.action_onehot: action_batch,
+                            self.y: y_batch})
+
+        if self.WRITE_SUMMARY:
+            run_res = sess.run(self.summary, feed_dict={self.layers[0]: state_batch,
+                                                        self.action_onehot: action_batch,
+                                                        self.y: y_batch})
+            writer.add_summary(run_res, self.n_episodes)
 
     def save_hyperparameters(self):
         with open(self.log_dir + 'parameters.json', 'w') as f:
@@ -183,12 +187,16 @@ class RankBasedPrioritizedReplay(FCQN):
         return [[m[i] for m in batch] for i in range(5)], sample
 
     def train_sess(self, sess, writer, batch, batch_ind, y_batch):
-        super().train_sess(sess, writer, batch, batch_ind, y_batch)
         state_batch, action_batch, _, nxt_state_batch, done_batch = batch
+        errors = sess.run(self.loss_vec, feed_dict={self.layers[0]: state_batch,
+                                                    self.action_onehot: action_batch,
+                                                    self.y: y_batch})
 
-        errors = np.abs(sess.run(self.loss_vec, feed_dict={self.layers[0]: state_batch,
-                                                           self.action_onehot: action_batch,
-                                                           self.y: y_batch}))
+        super().train_sess(sess, writer, batch, batch_ind, y_batch)
+
+        errors = errors - sess.run(self.loss_vec, feed_dict={self.layers[0]: state_batch,
+                                                             self.action_onehot: action_batch,
+                                                             self.y: y_batch})
 
         for i, x in zip(batch_ind, errors): self.memory[i][0] = x
         heapq.heapify(self.memory)
@@ -200,6 +208,7 @@ class OriginalFCQN(RandomReplay):
     def __init__(self, env, hidden_layers, env_name):
         self.LEARNING_RATE = 1E-3
         self.INITIAL_EPS = 1
+        self.FINAL_EPS = 0.01
         self.EPS_DECAY_RATE = 0.9
         self.EPS_DECAY_STEP = 1000
         self.MEMORY_SIZE = 10000
@@ -242,6 +251,7 @@ class DoubleFCQN(RankBasedPrioritizedReplay):
     def __init__(self, env, hidden_layers, env_name):
         self.LEARNING_RATE = 1E-3
         self.INITIAL_EPS = 1
+        self.FINAL_EPS = 0.001
         self.EPS_DECAY_RATE = 0.9
         self.EPS_DECAY_STEP = 1000
         self.MEMORY_SIZE = 10000
