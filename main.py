@@ -7,7 +7,7 @@ import pickle
 ENV_NAME = 'CartPole-v0'
 N_TEST = 100
 GOAL = 195
-MAX_EPISODES = 500
+MAX_EPISODES = 400
 
 
 # ENV_NAME = 'CartPole-v1'
