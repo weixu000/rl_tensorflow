@@ -4,18 +4,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 
+ENV_NAME = 'CartPole-v0'
 N_TEST = 100
 GOAL = 195
-ENV_NAME = 'CartPole-v0'
+MAX_EPISODES = 500
 
 
+# ENV_NAME = 'CartPole-v1'
 # N_TEST = 100
 # GOAL = 475
-# ENV_NAME = 'CartPole-v1'
+# MAX_EPISODES = 500
 
+# ENV_NAME = 'MountainCar-v0'
 # N_TEST = 100
 # GOAL = -110
-# ENV_NAME = 'MountainCar-v0'
+# MAX_EPISODES = 1000
+
+# ENV_NAME = 'Acrobot-v1'
+# N_TEST = 100
+# GOAL = -100
+# MAX_EPISODES = 1000
 
 
 def play(env, action_select, perceive, render=False):
@@ -66,7 +74,7 @@ def main():
     env = gym.make(ENV_NAME)
     agent = dqn.DoubleFCQN(env, [20, 10, 5], ENV_NAME)  # 三层隐藏层
     agent.save_hyperparameters()
-    train_episodes(env, agent)
+    train_episodes(env, agent, MAX_EPISODES)
 
 
 if __name__ == "__main__":
