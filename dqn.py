@@ -8,7 +8,7 @@ import time
 
 
 class FCQN:
-    WRITE_SUMMARY = True
+    WRITE_SUMMARY = False
 
     def __init__(self, env, hidden_layers, env_name):
         # 要求状态为向量，动作离散
@@ -107,13 +107,13 @@ class FCQN:
         if done: self.n_episodes += 1
         self.train()
 
-    def train_sess(self, sess, writer, batch, batch_ind, y_batch):
+    def train_sess(self, sess, writer, batch, batch_ind):
         """
         输入数据，训练网络
         """
-        state_batch, action_batch, _, nxt_state_batch, done_batch = batch
+        state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
-        sess.run([self.compute_grad, self.apply_grad, self.summary],
+        sess.run([self.compute_grad, self.apply_grad],
                  feed_dict={self.layers[0]: state_batch,
                             self.action_onehot: action_batch,
                             self.y: y_batch})
@@ -126,7 +126,7 @@ class FCQN:
 
     def save_hyperparameters(self):
         with open(self.log_dir + 'parameters.json', 'w') as f:
-            json.dump(dict(filter(lambda x: x[0][0].isupper(), self.__dict__.items())), f,
+            json.dump(dict(filter(lambda x: x[0][0].isupper() or x[0] == 'layers_n', self.__dict__.items())), f,
                       indent=4, sort_keys=True)
 
 
@@ -143,13 +143,17 @@ class RandomReplay(FCQN):
     def sample_memory(self):
         # 随机抽取batch_size个记忆，分别建立状态、动作、Q、下一状态、完成与否的矩阵（一行对应一个记忆）
         batch_ind = np.random.choice(len(self.memory), min(self.BATCH_SIZE, len(self.memory)), False)
-        batch = [m for i, m in enumerate(self.memory) if i in batch_ind]
-        return [[m[i] for m in batch] for i in range(5)], None  # RandomReplay不需要batch_ind
+        batch = [x for i, x in enumerate(self.memory) if i in batch_ind]
+        return [np.array([m[i] for m in batch]) for i in range(5)], None  # RandomReplay不需要batch_ind
 
 
 class RankBasedPrioritizedReplay(FCQN):
-    class Experience(list):
-        def __lt__(self, other): return self[0] < other[0]
+    class Experience:
+        def __lt__(self, other): return self.priority < other.priority
+
+        def __init__(self, priority, data):
+            self.priority = priority
+            self.data = data
 
     def __init__(self, env, hidden_layers, env_name):
         self.ALPHA = 5  # 幂分布的指数
@@ -162,7 +166,6 @@ class RankBasedPrioritizedReplay(FCQN):
     def perceive(self, state, action, reward, nxt_state, done):
         # 插入最近的记忆
         experience = list(self.process_experience(state, action, reward, nxt_state, done))
-        experience = self.Experience([None] + experience)
         self.recent_memory.append(experience)
 
         # 记忆过多，则删除误差最小的
@@ -175,40 +178,45 @@ class RankBasedPrioritizedReplay(FCQN):
 
     def sample_memory(self):
         # 按幂分布取出记忆
-        sample = np.random.power(self.ALPHA, self.BATCH_SIZE - len(self.recent_memory)) * len(self.memory)
-        sample = list(set(np.floor(sample).astype(int)))
+        batch_ind = np.random.power(self.ALPHA, min(self.BATCH_SIZE, len(self.memory))) * len(self.memory)
+        batch_ind = list(set(batch_ind.astype(int)))
 
         # 将最近没有训练的记忆加入
-        sample += list(range(len(self.memory), len(self.recent_memory) + len(self.memory)))
-        self.memory += self.recent_memory
+        batch_ind += list(range(len(self.memory), len(self.recent_memory) + len(self.memory)))
+        self.memory += [self.Experience(None, x) for x in self.recent_memory]
         self.recent_memory = []
 
-        batch = [x[1:] for i, x in enumerate(self.memory) if i in sample]
-        return [[m[i] for m in batch] for i in range(5)], sample
+        batch = [x.data for i, x in enumerate(self.memory) if i in batch_ind]
+        return [np.array([m[i] for m in batch]) for i in range(5)], batch_ind
 
-    def train_sess(self, sess, writer, batch, batch_ind, y_batch):
-        state_batch, action_batch, _, nxt_state_batch, done_batch = batch
-        errors = sess.run(self.loss_vec, feed_dict={self.layers[0]: state_batch,
-                                                    self.action_onehot: action_batch,
-                                                    self.y: y_batch})
+    def train_sess(self, sess, writer, batch, batch_ind):
+        state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
-        super().train_sess(sess, writer, batch, batch_ind, y_batch)
+        none_ind = np.array([[i, j] for i, j in enumerate(batch_ind) if self.memory[j].priority is None])
+        loss = sess.run(self.loss_vec, feed_dict={self.layers[0]: state_batch[none_ind.T[0]],
+                                                  self.action_onehot: action_batch[none_ind.T[0]],
+                                                  self.y: y_batch[none_ind.T[0]]})
+        for i, j in enumerate(none_ind): self.memory[j[1]].priority = loss[i]
 
-        errors = errors - sess.run(self.loss_vec, feed_dict={self.layers[0]: state_batch,
-                                                             self.action_onehot: action_batch,
-                                                             self.y: y_batch})
+        super().train_sess(sess, writer, batch, batch_ind)
 
-        for i, x in zip(batch_ind, errors): self.memory[i][0] = x
+        errors = np.array([self.memory[i].priority for i in batch_ind]) - sess.run(self.loss_vec,
+                                                                                   feed_dict={
+                                                                                       self.layers[0]: state_batch,
+                                                                                       self.action_onehot: action_batch,
+                                                                                       self.y: y_batch})
+
+        for i, x in zip(batch_ind, errors): self.memory[i].priority = x
         heapq.heapify(self.memory)
 
 
-class OriginalFCQN(RandomReplay):
+class OriginalFCQN(RankBasedPrioritizedReplay):
     NAME = 'Original'
 
     def __init__(self, env, hidden_layers, env_name):
         self.LEARNING_RATE = 1E-3
         self.INITIAL_EPS = 1
-        self.FINAL_EPS = 0.01
+        self.FINAL_EPS = 0.001
         self.EPS_DECAY_RATE = 0.9
         self.EPS_DECAY_STEP = 1000
         self.MEMORY_SIZE = 10000
@@ -242,7 +250,7 @@ class OriginalFCQN(RandomReplay):
         nxt_qs[done_batch] = 0
         y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
 
-        self.train_sess(self.sess, self.summary_writer, batch, batch_ind, y_batch)
+        self.train_sess(self.sess, self.summary_writer, batch, batch_ind)
 
 
 class DoubleFCQN(RankBasedPrioritizedReplay):
@@ -296,4 +304,4 @@ class DoubleFCQN(RankBasedPrioritizedReplay):
         nxt_qs[done_batch] = 0  # 如果完成设为0
         y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
 
-        self.train_sess(sess1, writer1, batch, batch_ind, y_batch)
+        self.train_sess(sess1, writer1, batch, batch_ind)
