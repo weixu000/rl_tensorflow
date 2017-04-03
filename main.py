@@ -57,17 +57,17 @@ def train_episodes(env, agent, n_episodes=500):
         # 强行结束
         # pycharm不能用
         print('Training interrupted by KeyboardInterrupt at {}'.format(i_episode))
+    finally:
+        with open(agent.log_dir + 'rewards.pickle', 'wb') as f:
+            pickle.dump((rewards, aver_rewards), f)
 
-    with open(agent.log_dir + 'rewards.pickle', 'wb') as f:
-        pickle.dump((rewards, aver_rewards), f)
-
-    # 画图
-    plt.plot(rewards, label='Return for each episode')
-    plt.plot(aver_rewards, label='Average return for last {} episodes'.format(N_TEST))
-    plt.legend(frameon=False)
-    plt.xlabel('Episode')
-    plt.ylabel('Return')
-    plt.show()
+        # 画图
+        plt.plot(rewards, label='Return for each episode')
+        plt.plot(aver_rewards, label='Average return for last {} episodes'.format(N_TEST))
+        plt.legend(frameon=False)
+        plt.xlabel('Episode')
+        plt.ylabel('Return')
+        plt.show()
 
 
 def main():
