@@ -21,44 +21,46 @@ class FCQN:
         self.n_episodes = 0
         self.n_timesteps = 0
 
-        self.create_graph(hidden_layers)
-
-    def create_graph(self, hidden_layers):
         self.layers_n = [self.env.observation_space.shape[0]] + hidden_layers + [self.env.action_space.n]  # 每层网络中神经元个数
         # 构建网络
         self.graph = tf.Graph()
         with self.graph.as_default():
-            with tf.name_scope('input_layer'):
-                self.layers = [tf.placeholder(tf.float32, [None, self.layers_n[0]])]  # 输入层
-            for i, (lst, cur) in enumerate(zip(self.layers_n[:-2], self.layers_n[1:-1])):
-                with tf.name_scope('hidden_layer{}'.format(i)):
-                    self.layers.append(tf.nn.relu(self.create_FC_layer(lst, cur)))  # 隐藏层用RELU
-            with tf.name_scope('output_layer'):
-                self.layers.append(self.create_FC_layer(self.layers_n[-2], self.layers_n[-1]))  # 输出层，没有激活函数
-
-            # 训练用到的指示值y（相当于图像识别的标签），action（最小化特定动作Q的误差），loss
-            with tf.name_scope('train'):
-                self.y = tf.placeholder(tf.float32, [None], name='target')
-                self.action_onehot = tf.placeholder(tf.float32, [None, self.layers_n[-1]], name='action_onehot')
-                self.action_value = tf.reduce_sum(self.layers[-1] * self.action_onehot, reduction_indices=1,
-                                                  name='sample_Q')
-                self.loss_vec = self.y - self.action_value
-                self.loss = tf.reduce_mean(tf.square(self.loss_vec), name='loss')
-
-                optimizer = tf.train.AdamOptimizer(self.LEARNING_RATE)
-                self.compute_grad = optimizer.compute_gradients(self.loss)
-                self.apply_grad = optimizer.apply_gradients(self.compute_grad)
-
-            if self.WRITE_SUMMARY:
-                # 将误差loss和梯度grad都记录下来
-                with tf.name_scope('evaluate'):
-                    tf.summary.scalar('_loss', self.loss)
-                    for grad, var in self.compute_grad: tf.summary.histogram(var.name + '_grad', grad)
-                    self.summary = tf.summary.merge_all()
-
+            self.create_graph()
+            self.create_loss()
+            self.create_summary()
             self.compute_grad = [x[0] for x in self.compute_grad]  # 留下梯度，去掉变量，方便train_sess
-
             self.init = tf.global_variables_initializer()
+
+    def create_graph(self):
+        with tf.name_scope('input_layer'):
+            self.layers = [tf.placeholder(tf.float32, [None, self.layers_n[0]])]  # 输入层
+        for i, (lst, cur) in enumerate(zip(self.layers_n[:-2], self.layers_n[1:-1])):
+            with tf.name_scope('hidden_layer{}'.format(i)):
+                self.layers.append(tf.nn.relu(self.create_FC_layer(lst, cur)))  # 隐藏层用RELU
+        with tf.name_scope('output_layer'):
+            self.layers.append(self.create_FC_layer(self.layers_n[-2], self.layers_n[-1]))  # 输出层，没有激活函数
+
+    def create_loss(self):
+        # 训练用到的指示值y（相当于图像识别的标签），action（最小化特定动作Q的误差），loss
+        with tf.name_scope('train'):
+            self.y = tf.placeholder(tf.float32, [None], name='target')
+            self.action_onehot = tf.placeholder(tf.float32, [None, self.layers_n[-1]], name='action_onehot')
+            self.action_value = tf.reduce_sum(self.layers[-1] * self.action_onehot, reduction_indices=1,
+                                              name='sample_Q')
+            self.loss_vec = self.y - self.action_value
+            self.loss = tf.reduce_mean(tf.square(self.loss_vec), name='loss')
+
+            optimizer = tf.train.AdamOptimizer(self.LEARNING_RATE)
+            self.compute_grad = optimizer.compute_gradients(self.loss)
+            self.apply_grad = optimizer.apply_gradients(self.compute_grad)
+
+    def create_summary(self):
+        if self.WRITE_SUMMARY:
+            # 将误差loss和梯度grad都记录下来
+            with tf.name_scope('evaluate'):
+                tf.summary.scalar('_loss', self.loss)
+                for grad, var in self.compute_grad: tf.summary.histogram(var.name + '_grad', grad)
+                self.summary = tf.summary.merge_all()
 
     def create_FC_layer(self, lst, cur):
         """
