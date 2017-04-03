@@ -10,7 +10,8 @@ import time
 class FCQN:
     WRITE_SUMMARY = False
 
-    def __init__(self, env, hidden_layers, env_name):
+    def __init__(self, env, env_name):
+        self.HIDDEN_LAYERS = [20, 10, 5]
         # 要求状态为向量，动作离散
         assert type(env.action_space) == gym.spaces.discrete.Discrete and \
                type(env.observation_space) == gym.spaces.box.Box
@@ -21,7 +22,8 @@ class FCQN:
         self.n_episodes = 0
         self.n_timesteps = 0  # 总步数
 
-        self.layers_n = [self.env.observation_space.shape[0]] + hidden_layers + [self.env.action_space.n]  # 每层网络中神经元个数
+        self.layers_n = [self.env.observation_space.shape[0]] + self.HIDDEN_LAYERS + [
+            self.env.action_space.n]  # 每层网络中神经元个数
         # 构建网络
         self.graph = tf.Graph()
         with self.graph.as_default():
@@ -147,7 +149,7 @@ class FCQN:
         保存参数到parameters.json
         """
         with open(self.log_dir + 'parameters.json', 'w') as f:
-            json.dump(dict(filter(lambda x: x[0][0].isupper() or x[0] == 'layers_n', self.__dict__.items())), f,
+            json.dump(dict(filter(lambda x: x[0][0].isupper(), self.__dict__.items())), f,
                       indent=4, sort_keys=True)
 
 
@@ -156,8 +158,8 @@ class RandomReplay(FCQN):
     随机经验回放
     """
 
-    def __init__(self, env, hidden_layers, env_name):
-        super().__init__(env, hidden_layers, env_name)
+    def __init__(self, env, env_name):
+        super().__init__(env, env_name)
         self.memory = deque(maxlen=self.MEMORY_SIZE)
 
     def perceive(self, state, action, reward, nxt_state, done):
@@ -190,10 +192,10 @@ class RankBasedPrioritizedReplay(FCQN):
             self.priority = priority
             self.data = data
 
-    def __init__(self, env, hidden_layers, env_name):
+    def __init__(self, env, env_name):
         self.ALPHA = 5  # 幂分布的指数
         self.SORT_WHEN = 1000  # 何时完全排序记忆
-        super().__init__(env, hidden_layers, env_name)
+        super().__init__(env, env_name)
         self.memory = []
         # 最近的记忆，尚未训练
         self.recent_memory = []
@@ -254,7 +256,7 @@ class OriginalFCQN(RandomReplay):
     """
     NAME = 'Original'
 
-    def __init__(self, env, hidden_layers, env_name):
+    def __init__(self, env, env_name):
         self.LEARNING_RATE = 1E-3
         self.INITIAL_EPS = 1
         self.FINAL_EPS = 0.001
@@ -264,7 +266,7 @@ class OriginalFCQN(RandomReplay):
         self.GAMMA = 0.9
         self.BATCH_SIZE = 200
 
-        super().__init__(env, hidden_layers, env_name)
+        super().__init__(env, env_name)
 
         # 目前只用一个网络
         self.sessions = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir, self.graph))]
@@ -297,7 +299,7 @@ class DoubleFCQN(RandomReplay):
     """
     NAME = 'Double'
 
-    def __init__(self, env, hidden_layers, env_name):
+    def __init__(self, env, env_name):
         self.LEARNING_RATE = 1E-3
         self.INITIAL_EPS = 1
         self.FINAL_EPS = 0.001
@@ -307,7 +309,7 @@ class DoubleFCQN(RandomReplay):
         self.GAMMA = 0.9
         self.BATCH_SIZE = 200
 
-        super().__init__(env, hidden_layers, env_name)
+        super().__init__(env, env_name)
 
         self.sessions = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q1/', self.graph)),
                          (tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q2/', self.graph))]

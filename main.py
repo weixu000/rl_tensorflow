@@ -72,7 +72,7 @@ def train_episodes(env, agent, n_episodes=500):
 
 def main():
     env = gym.make(ENV_NAME)
-    agent = dqn.OriginalFCQN(env, [20, 10, 5], ENV_NAME)  # 三层隐藏层
+    agent = dqn.DoubleFCQN(env, ENV_NAME)  # 三层隐藏层
     agent.save_hyperparameters()
     train_episodes(env, agent, MAX_EPISODES)
 
