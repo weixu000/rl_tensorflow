@@ -39,9 +39,10 @@ class FCQN:
             self.layers = [tf.placeholder(tf.float32, [None, self.layers_n[0]])]  # 输入层
         for i, (lst, cur) in enumerate(zip(self.layers_n[:-2], self.layers_n[1:-1])):
             with tf.name_scope('hidden_layer{}'.format(i)):
-                self.layers.append(tf.nn.relu(self.create_FC_layer(lst, cur)))  # 隐藏层用RELU
-        with tf.name_scope('output_layer'):
-            self.layers.append(self.create_FC_layer(self.layers_n[-2], self.layers_n[-1]))  # 输出层，没有激活函数
+                self.layers.append(tf.nn.relu(self.create_FC_layer(self.layers[-1], lst, cur)))  # 隐藏层用RELU
+        with tf.name_scope('Q_layer'):
+            self.layers.append(
+                self.create_FC_layer(self.layers[-1], self.layers_n[-2], self.layers_n[-1]))  # 输出层，没有激活函数
 
     def create_loss(self):
         """
@@ -71,16 +72,16 @@ class FCQN:
                 for grad, var in self.compute_grad: tf.summary.histogram(var.name + '_grad', grad)
                 self.summary = tf.summary.merge_all()
 
-    def create_FC_layer(self, lst, cur):
+    def create_FC_layer(self, prev, row, col):
         """
         建立z=x*W+b
         """
-        W = tf.Variable(tf.truncated_normal([lst, cur]), name='weights')
-        b = tf.Variable(tf.constant(0.1, shape=[cur]), name='biases')  # 正偏置促进学习
+        W = tf.Variable(tf.truncated_normal([row, col]), name='weights')
+        b = tf.Variable(tf.constant(0.1, shape=[col]), name='biases')  # 正偏置促进学习
         if self.WRITE_SUMMARY:
             tf.summary.histogram('W', W)
             tf.summary.histogram('b', b)
-        return tf.matmul(self.layers[-1], W) + b
+        return tf.matmul(tf.reshape(prev, [-1, row]), W) + b
 
     def normalize_state(self, state):
         """
@@ -247,7 +248,7 @@ class RankBasedPrioritizedReplay(FCQN):
         heapq.heapify(self.memory)
 
 
-class OriginalFCQN(RankBasedPrioritizedReplay):
+class OriginalFCQN(RandomReplay):
     """
     Nature DQN
     """
@@ -290,7 +291,7 @@ class OriginalFCQN(RankBasedPrioritizedReplay):
         self.train_sess(self.sessions[0][0], batch, batch_ind)
 
 
-class DoubleFCQN(RankBasedPrioritizedReplay):
+class DoubleFCQN(RandomReplay):
     """
     Double DQN
     """
