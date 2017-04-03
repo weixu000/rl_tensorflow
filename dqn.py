@@ -19,7 +19,7 @@ class FCQN:
         self.env = env
         self.log_dir = '/'.join(['log', env_name, self.NAME, time.strftime('%m-%d-%H-%M')]) + '/'
         self.n_episodes = 0
-        self.n_timesteps = 0
+        self.n_timesteps = 0  # 总步数
 
         self.layers_n = [self.env.observation_space.shape[0]] + hidden_layers + [self.env.action_space.n]  # 每层网络中神经元个数
         # 构建网络
@@ -27,11 +27,14 @@ class FCQN:
         with self.graph.as_default():
             self.create_graph()
             self.create_loss()
-            self.create_summary()
+            if self.WRITE_SUMMARY: self.create_summary()
             self.compute_grad = [x[0] for x in self.compute_grad]  # 留下梯度，去掉变量，方便train_sess
             self.init = tf.global_variables_initializer()
 
     def create_graph(self):
+        """
+        建立网络
+        """
         with tf.name_scope('input_layer'):
             self.layers = [tf.placeholder(tf.float32, [None, self.layers_n[0]])]  # 输入层
         for i, (lst, cur) in enumerate(zip(self.layers_n[:-2], self.layers_n[1:-1])):
@@ -41,6 +44,9 @@ class FCQN:
             self.layers.append(self.create_FC_layer(self.layers_n[-2], self.layers_n[-1]))  # 输出层，没有激活函数
 
     def create_loss(self):
+        """
+         生成误差，建立优化器
+        """
         # 训练用到的指示值y（相当于图像识别的标签），action（最小化特定动作Q的误差），loss
         with tf.name_scope('train'):
             self.y = tf.placeholder(tf.float32, [None], name='target')
@@ -55,6 +61,9 @@ class FCQN:
             self.apply_grad = optimizer.apply_gradients(self.compute_grad)
 
     def create_summary(self):
+        """
+        tensorboard记录
+        """
         if self.WRITE_SUMMARY:
             # 将误差loss和梯度grad都记录下来
             with tf.name_scope('evaluate'):
@@ -64,7 +73,7 @@ class FCQN:
 
     def create_FC_layer(self, lst, cur):
         """
-        建立单个全连接层的z=W*x+b
+        建立z=x*W+b
         """
         W = tf.Variable(tf.truncated_normal([lst, cur]), name='weights')
         b = tf.Variable(tf.constant(0.1, shape=[cur]), name='biases')  # 正偏置促进学习
@@ -89,11 +98,17 @@ class FCQN:
         return np.argmax(self[state])
 
     def epsilon_greedy(self, state):
+        """
+        epsilon可能选取任意动作
+        """
         eps = self.FINAL_EPS + (self.INITIAL_EPS - self.FINAL_EPS) * self.EPS_DECAY_RATE ** (
             self.n_timesteps / self.EPS_DECAY_STEP)
         return self.greedy_action(state) if np.random.rand() > eps else self.env.action_space.sample()
 
     def process_experience(self, state, action, reward, nxt_state, done):
+        """
+        处理单个经验
+        """
         # 将动作单个数值转化成onehot向量：2变成[0,0,1,0,0]
         onehot = np.zeros((self.layers_n[-1]))
         onehot[action] = 1
@@ -105,34 +120,41 @@ class FCQN:
         return state, onehot, reward, nxt_state, done
 
     def perceive(self, state, action, reward, nxt_state, done):
+        """
+        接受经验
+        """
         self.n_timesteps += 1
-        if done: self.n_episodes += 1
+        if done:
+            self.n_episodes += 1
+            if self.WRITE_SUMMARY:
+                for sess, writer in self.sessions:
+                    writer.add_summary(sess.run(self.summary), self.n_episodes)
         self.train()
 
-    def train_sess(self, sess, writer, batch, batch_ind):
+    def train_sess(self, sess, batch, batch_ind):
         """
         输入数据，训练网络
         """
         state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
-        sess.run([self.compute_grad, self.apply_grad],
-                 feed_dict={self.layers[0]: state_batch,
-                            self.action_onehot: action_batch,
-                            self.y: y_batch})
-
-        if self.WRITE_SUMMARY:
-            run_res = sess.run(self.summary, feed_dict={self.layers[0]: state_batch,
-                                                        self.action_onehot: action_batch,
-                                                        self.y: y_batch})
-            writer.add_summary(run_res, self.n_episodes)
+        sess.run(self.apply_grad, feed_dict={self.layers[0]: state_batch,
+                                             self.action_onehot: action_batch,
+                                             self.y: y_batch})
 
     def save_hyperparameters(self):
+        """
+        保存参数到parameters.json
+        """
         with open(self.log_dir + 'parameters.json', 'w') as f:
             json.dump(dict(filter(lambda x: x[0][0].isupper() or x[0] == 'layers_n', self.__dict__.items())), f,
                       indent=4, sort_keys=True)
 
 
 class RandomReplay(FCQN):
+    """
+    随机经验回放
+    """
+
     def __init__(self, env, hidden_layers, env_name):
         super().__init__(env, hidden_layers, env_name)
         self.memory = deque(maxlen=self.MEMORY_SIZE)
@@ -143,14 +165,24 @@ class RandomReplay(FCQN):
         super().perceive(state, action, reward, nxt_state, done)
 
     def sample_memory(self):
-        # 随机抽取batch_size个记忆，分别建立状态、动作、Q、下一状态、完成与否的矩阵（一行对应一个记忆）
+        """
+        随机抽取batch_size个记忆，分别建立状态、动作、Q、下一状态、完成与否的矩阵（一行对应一个记忆）
+        """
         batch_ind = np.random.choice(len(self.memory), min(self.BATCH_SIZE, len(self.memory)), False)
         batch = [x for i, x in enumerate(self.memory) if i in batch_ind]
         return [np.array([m[i] for m in batch]) for i in range(5)], None  # RandomReplay不需要batch_ind
 
 
 class RankBasedPrioritizedReplay(FCQN):
+    """
+    根据优先级抽取记忆回放
+    """
+
     class Experience:
+        """
+        存储带优先级的经验
+        """
+
         def __lt__(self, other): return self.priority < other.priority
 
         def __init__(self, priority, data):
@@ -159,7 +191,7 @@ class RankBasedPrioritizedReplay(FCQN):
 
     def __init__(self, env, hidden_layers, env_name):
         self.ALPHA = 5  # 幂分布的指数
-        self.SORT_WHEN = 500  # 何时完全排序记忆
+        self.SORT_WHEN = 1000  # 何时完全排序记忆
         super().__init__(env, hidden_layers, env_name)
         self.memory = []
         # 最近的记忆，尚未训练
@@ -191,28 +223,34 @@ class RankBasedPrioritizedReplay(FCQN):
         batch = [x.data for i, x in enumerate(self.memory) if i in batch_ind]
         return [np.array([m[i] for m in batch]) for i in range(5)], batch_ind
 
-    def train_sess(self, sess, writer, batch, batch_ind):
+    def train_sess(self, sess, batch, batch_ind):
         state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
+        # 先计算最近的经验
         none_ind = np.array([[i, j] for i, j in enumerate(batch_ind) if self.memory[j].priority is None])
         loss = sess.run(self.loss_vec, feed_dict={self.layers[0]: state_batch[none_ind.T[0]],
                                                   self.action_onehot: action_batch[none_ind.T[0]],
                                                   self.y: y_batch[none_ind.T[0]]})
         for i, j in enumerate(none_ind): self.memory[j[1]].priority = loss[i]
 
-        super().train_sess(sess, writer, batch, batch_ind)
+        super().train_sess(sess, batch, batch_ind)
 
+        # 计算误差减少量，以此作为优先级
         errors = np.array([self.memory[i].priority for i in batch_ind]) - sess.run(self.loss_vec,
                                                                                    feed_dict={
                                                                                        self.layers[0]: state_batch,
                                                                                        self.action_onehot: action_batch,
                                                                                        self.y: y_batch})
 
+        # 更新经验
         for i, x in zip(batch_ind, errors): self.memory[i].priority = x
         heapq.heapify(self.memory)
 
 
 class OriginalFCQN(RankBasedPrioritizedReplay):
+    """
+    Nature DQN
+    """
     NAME = 'Original'
 
     def __init__(self, env, hidden_layers, env_name):
@@ -227,18 +265,15 @@ class OriginalFCQN(RankBasedPrioritizedReplay):
 
         super().__init__(env, hidden_layers, env_name)
 
-        # 输出日志
-        self.summary_writer = tf.summary.FileWriter(self.log_dir, self.graph)
-
-        # 初始化tensorflow
-        self.sess = tf.Session(graph=self.graph)
-        self.sess.run(self.init)
+        # 目前只用一个网络
+        self.sessions = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir, self.graph))]
+        self.sessions[0][0].run(self.init)
 
     def __getitem__(self, state):
         """
         给定单个状态，计算所有动作的Q值
         """
-        return self.sess.run(self.layers[-1], feed_dict={self.layers[0]: [self.normalize_state(state)]})[0]
+        return self.sessions[0][0].run(self.layers[-1], feed_dict={self.layers[0]: [self.normalize_state(state)]})[0]
 
     def train(self):
         """
@@ -248,14 +283,17 @@ class OriginalFCQN(RankBasedPrioritizedReplay):
         state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
         # 计算公式中的maxQ，如果完成设为0
-        nxt_qs = np.max(self.sess.run(self.layers[-1], feed_dict={self.layers[0]: nxt_state_batch}), axis=1)
+        nxt_qs = np.max(self.sessions[0][0].run(self.layers[-1], feed_dict={self.layers[0]: nxt_state_batch}), axis=1)
         nxt_qs[done_batch] = 0
         y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
 
-        self.train_sess(self.sess, self.summary_writer, batch, batch_ind)
+        self.train_sess(self.sessions[0][0], batch, batch_ind)
 
 
 class DoubleFCQN(RankBasedPrioritizedReplay):
+    """
+    Double DQN
+    """
     NAME = 'Double'
 
     def __init__(self, env, hidden_layers, env_name):
@@ -270,17 +308,16 @@ class DoubleFCQN(RankBasedPrioritizedReplay):
 
         super().__init__(env, hidden_layers, env_name)
 
-        # 初始化tensorflow
-        self.sess = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q1/', self.graph)),
-                     (tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q2/', self.graph))]
-        for s in self.sess: s[0].run(self.init)
+        self.sessions = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q1/', self.graph)),
+                         (tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q2/', self.graph))]
+        for s in self.sessions: s[0].run(self.init)
 
     def __getitem__(self, state):
         """
         给定单个状态，计算所有动作的Q值
         """
         ret = np.zeros((self.layers_n[-1],))
-        for s in self.sess:
+        for s in self.sessions:
             ret += s[0].run(self.layers[-1], feed_dict={self.layers[0]: [self.normalize_state(state)]})[0]
 
         return ret / 2
@@ -294,9 +331,9 @@ class DoubleFCQN(RankBasedPrioritizedReplay):
 
         # 任取一个训练
         if np.random.rand() >= 0.5:
-            (sess1, writer1), (sess2, writer2) = self.sess
+            (sess1, writer1), (sess2, writer2) = self.sessions
         else:
-            (sess2, writer2), (sess1, writer1) = self.sess
+            (sess2, writer2), (sess1, writer1) = self.sessions
 
         # sess1计算argmaxQ的onehot表示
         a = np.eye(self.layers_n[-1])[
@@ -306,4 +343,4 @@ class DoubleFCQN(RankBasedPrioritizedReplay):
         nxt_qs[done_batch] = 0  # 如果完成设为0
         y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
 
-        self.train_sess(sess1, writer1, batch, batch_ind)
+        self.train_sess(sess1, batch, batch_ind)
