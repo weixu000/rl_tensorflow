@@ -12,6 +12,14 @@ class FCQN:
 
     def __init__(self, env, env_name):
         self.HIDDEN_LAYERS = [20, 10, 5]
+        self.LEARNING_RATE = 1E-3
+        self.INITIAL_EPS = 1
+        self.FINAL_EPS = 0.0001
+        self.EPS_DECAY_RATE = 0.9
+        self.EPS_DECAY_STEP = 1000
+        self.MEMORY_SIZE = 10000
+        self.GAMMA = 0.9
+        self.BATCH_SIZE = 200
         # 要求状态为向量，动作离散
         assert type(env.action_space) == gym.spaces.discrete.Discrete and \
                type(env.observation_space) == gym.spaces.box.Box
@@ -166,8 +174,9 @@ class FCQN:
 
 class DuelingFCQN(FCQN):
     def __init__(self, env, env_name):
-        self.STATE_HIDDEN_LAYERS = [5]
-        self.ADVANTAGE_HIDDEN_LAYERS = [5]
+        self.HIDDEN_LAYERS = [30, 30]
+        self.STATE_HIDDEN_LAYERS = [10, 5]
+        self.ADVANTAGE_HIDDEN_LAYERS = [10, 5]
         super().__init__(env, env_name)
 
     def create_graph(self):
@@ -309,15 +318,6 @@ class OriginalFCQN(RandomReplay):
     NAME = 'Original'
 
     def __init__(self, env, env_name):
-        self.LEARNING_RATE = 1E-3
-        self.INITIAL_EPS = 1
-        self.FINAL_EPS = 0.001
-        self.EPS_DECAY_RATE = 0.9
-        self.EPS_DECAY_STEP = 1000
-        self.MEMORY_SIZE = 10000
-        self.GAMMA = 0.9
-        self.BATCH_SIZE = 200
-
         super().__init__(env, env_name)
 
         # 目前只用一个网络
@@ -345,22 +345,13 @@ class OriginalFCQN(RandomReplay):
         self.train_sess(self.sessions[0][0], batch, batch_ind)
 
 
-class DoubleFCQN(RankBasedPrioritizedReplay):
+class DoubleFCQN(RandomReplay):
     """
     Double DQN
     """
     NAME = 'Double'
 
     def __init__(self, env, env_name):
-        self.LEARNING_RATE = 1E-3
-        self.INITIAL_EPS = 1
-        self.FINAL_EPS = 0.001
-        self.EPS_DECAY_RATE = 0.9
-        self.EPS_DECAY_STEP = 1000
-        self.MEMORY_SIZE = 10000
-        self.GAMMA = 0.9
-        self.BATCH_SIZE = 200
-
         super().__init__(env, env_name)
 
         self.sessions = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q1/', self.graph)),
