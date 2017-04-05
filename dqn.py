@@ -22,8 +22,6 @@ class FCQN:
         self.n_episodes = 0
         self.n_timesteps = 0  # 总步数
 
-        self.layers_n = [self.env.observation_space.shape[0]] + self.HIDDEN_LAYERS + [
-            self.env.action_space.n]  # 每层网络中神经元个数
         # 构建网络
         self.graph = tf.Graph()
         with self.graph.as_default():
@@ -33,18 +31,31 @@ class FCQN:
             self.compute_grad = [x[0] for x in self.compute_grad]  # 留下梯度，去掉变量，方便train_sess
             self.init = tf.global_variables_initializer()
 
+    def create_FC_stream(self, input, layers_n, name):
+        """
+        :param input: 输入
+        :param layers_n: 
+        :param name: 
+        :return: 
+        """
+        layers = [input]
+        for i, (lst, cur) in enumerate(zip(layers_n[:-1], layers_n[1:])):
+            with tf.name_scope('{}{}'.format(name, i)):
+                layers.append(tf.nn.relu(self.create_z(layers[-1], lst, cur)))  # 隐藏层用RELU
+        return layers[1:]
+
     def create_graph(self):
         """
         建立网络
         """
+        self.layers_n = [self.env.observation_space.shape[0]] + self.HIDDEN_LAYERS + [
+            self.env.action_space.n]  # 每层网络中神经元个数
         with tf.name_scope('input_layer'):
             self.layers = [tf.placeholder(tf.float32, [None, self.layers_n[0]])]  # 输入层
-        for i, (lst, cur) in enumerate(zip(self.layers_n[:-2], self.layers_n[1:-1])):
-            with tf.name_scope('hidden_layer{}'.format(i)):
-                self.layers.append(tf.nn.relu(self.create_FC_layer(self.layers[-1], lst, cur)))  # 隐藏层用RELU
+        self.layers += self.create_FC_stream(self.layers[-1], self.layers_n[:-1], 'hidden_layer')
         with tf.name_scope('Q_layer'):
             self.layers.append(
-                self.create_FC_layer(self.layers[-1], self.layers_n[-2], self.layers_n[-1]))  # 输出层，没有激活函数
+                self.create_z(self.layers[-1], self.layers_n[-2], self.layers_n[-1]))  # 输出层，没有激活函数
 
     def create_loss(self):
         """
@@ -74,7 +85,7 @@ class FCQN:
                 for grad, var in self.compute_grad: tf.summary.histogram(var.name + '_grad', grad)
                 self.summary = tf.summary.merge_all()
 
-    def create_FC_layer(self, prev, row, col):
+    def create_z(self, prev, row, col):
         """
         建立z=x*W+b
         """
@@ -153,7 +164,48 @@ class FCQN:
                       indent=4, sort_keys=True)
 
 
-class RandomReplay(FCQN):
+class DuelingFCQN(FCQN):
+    def __init__(self, env, env_name):
+        self.STATE_HIDDEN_LAYERS = [5]
+        self.ADVANTAGE_HIDDEN_LAYERS = [5]
+        super().__init__(env, env_name)
+
+    def create_graph(self):
+        """
+        建立网络
+        """
+        # 每层网络中神经元个数
+        self.layers_n = [self.env.observation_space.shape[0]] + self.HIDDEN_LAYERS \
+                        + [[self.STATE_HIDDEN_LAYERS + [1],
+                            self.ADVANTAGE_HIDDEN_LAYERS + [self.env.action_space.n]]] \
+                        + [self.env.action_space.n]
+
+        with tf.name_scope('input_layer'):
+            self.layers = [tf.placeholder(tf.float32, [None, self.layers_n[0]])]  # 输入层
+        self.layers += self.create_FC_stream(self.layers[-1], self.layers_n[:-2], 'hidden_layer')  # 隐藏层
+
+        # 状态价值隐藏层
+        state_stream = self.create_FC_stream(self.layers[-1], [self.HIDDEN_LAYERS[-1]] + self.STATE_HIDDEN_LAYERS,
+                                             'state_hidden_layer')
+        # 状态价值，不用RELU
+        with tf.name_scope('state_value'):
+            state_stream.append(self.create_z(state_stream[-1], self.STATE_HIDDEN_LAYERS[-1], 1))
+
+        # 动作优势隐藏层
+        advantage = self.create_FC_stream(self.layers[-1], [self.HIDDEN_LAYERS[-1]] + self.ADVANTAGE_HIDDEN_LAYERS,
+                                          'advantage_hidden_layer')
+        # 动作优势，不用RELU
+        with tf.name_scope('action_advantage'):
+            advantage.append(self.create_z(advantage[-1], self.ADVANTAGE_HIDDEN_LAYERS[-1], self.env.action_space.n))
+
+        self.layers.append([state_stream, advantage])  # 并行加入网络中
+        # 输出Q层
+        with tf.name_scope('Q_layer'):
+            self.layers.append(
+                state_stream[-1] + advantage[-1] - tf.reduce_mean(advantage[-1], axis=1, keep_dims=True))
+
+
+class RandomReplay(DuelingFCQN):
     """
     随机经验回放
     """
@@ -176,7 +228,7 @@ class RandomReplay(FCQN):
         return [np.array([m[i] for m in batch]) for i in range(5)], None  # RandomReplay不需要batch_ind
 
 
-class RankBasedPrioritizedReplay(FCQN):
+class RankBasedPrioritizedReplay(DuelingFCQN):
     """
     根据优先级抽取记忆回放
     """
@@ -293,7 +345,7 @@ class OriginalFCQN(RandomReplay):
         self.train_sess(self.sessions[0][0], batch, batch_ind)
 
 
-class DoubleFCQN(RandomReplay):
+class DoubleFCQN(RankBasedPrioritizedReplay):
     """
     Double DQN
     """
