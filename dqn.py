@@ -8,18 +8,21 @@ import time
 
 
 class FCQN:
+    """
+    普通DQN结构网络
+    """
     WRITE_SUMMARY = False
 
     def __init__(self, env, env_name):
-        self.HIDDEN_LAYERS = [20, 10, 5]
-        self.LEARNING_RATE = 1E-3
+        self.HIDDEN_LAYERS = [30, 20, 20, 10]
+        self.LEARNING_RATE = 2E-3
         self.INITIAL_EPS = 1
-        self.FINAL_EPS = 0.0001
+        self.FINAL_EPS = 1E-3
         self.EPS_DECAY_RATE = 0.9
         self.EPS_DECAY_STEP = 1000
         self.MEMORY_SIZE = 10000
-        self.GAMMA = 0.9
-        self.BATCH_SIZE = 200
+        self.GAMMA = 1
+        self.BATCH_SIZE = 100
         # 要求状态为向量，动作离散
         assert type(env.action_space) == gym.spaces.discrete.Discrete and \
                type(env.observation_space) == gym.spaces.box.Box
@@ -173,8 +176,12 @@ class FCQN:
 
 
 class DuelingFCQN(FCQN):
+    """
+    Dueling网络
+    """
+
     def __init__(self, env, env_name):
-        self.HIDDEN_LAYERS = [30, 30]
+        self.HIDDEN_LAYERS = [30, 20]
         self.STATE_HIDDEN_LAYERS = [10, 5]
         self.ADVANTAGE_HIDDEN_LAYERS = [10, 5]
         super().__init__(env, env_name)
@@ -254,8 +261,8 @@ class RankBasedPrioritizedReplay(DuelingFCQN):
             self.data = data
 
     def __init__(self, env, env_name):
-        self.ALPHA = 5  # 幂分布的指数
-        self.SORT_WHEN = 1000  # 何时完全排序记忆
+        self.ALPHA = 3  # 幂分布的指数
+        self.SORT_WHEN = 5000  # 何时完全排序记忆
         super().__init__(env, env_name)
         self.memory = []
         # 最近的记忆，尚未训练
@@ -345,7 +352,7 @@ class OriginalFCQN(RandomReplay):
         self.train_sess(self.sessions[0][0], batch, batch_ind)
 
 
-class DoubleFCQN(RandomReplay):
+class DoubleFCQN(RankBasedPrioritizedReplay):
     """
     Double DQN
     """
