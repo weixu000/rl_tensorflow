@@ -1,19 +1,20 @@
 import gym
-import dqn
+import fcqn
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 
-ENV_NAME = 'CartPole-v0'
-N_TEST = 100
-GOAL = 195
-MAX_EPISODES = 400
-
-
-# ENV_NAME = 'CartPole-v1'
+# ENV_NAME = 'CartPole-v0'
 # N_TEST = 100
-# GOAL = 475
-# MAX_EPISODES = 500
+# GOAL = 195
+# MAX_EPISODES = 400
+
+
+ENV_NAME = 'CartPole-v1'
+N_TEST = 100
+GOAL = 475
+MAX_EPISODES = 500
+
 
 # ENV_NAME = 'MountainCar-v0'
 # N_TEST = 100
@@ -52,11 +53,10 @@ def train_episodes(env, agent, n_episodes=500):
                 print("Environment solved after {} episodes".format(i_episode))  # 按openai gym 要求完成了环境
                 break
         else:
-            print("Maximum {} of episodes exceeded".format(n_episodes))
-    except KeyboardInterrupt:
-        # 强行结束
-        # pycharm不能用
-        print('Training interrupted by KeyboardInterrupt at {}'.format(i_episode))
+            r = 0
+            for _ in range(N_TEST): r += play(env, agent.greedy_action, None)
+            r /= N_TEST
+            print("Maximum {} of episodes exceeded with greedy action reward {}".format(n_episodes, r))
     finally:
         with open(agent.log_dir + 'rewards.pickle', 'wb') as f:
             pickle.dump((rewards, aver_rewards), f)
@@ -72,7 +72,7 @@ def train_episodes(env, agent, n_episodes=500):
 
 def main():
     env = gym.make(ENV_NAME)
-    agent = dqn.DoubleFCQN(env, ENV_NAME)  # 三层隐藏层
+    agent = fcqn.DoubleFCQN(env, ENV_NAME)  # 三层隐藏层
     agent.save_hyperparameters()
     train_episodes(env, agent, MAX_EPISODES)
 
