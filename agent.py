@@ -1,8 +1,9 @@
-import tensorflow as tf
 import numpy as np
+import tensorflow as tf
 import gym
 import json
 import time
+import os
 
 
 class QNetwork:
@@ -17,16 +18,16 @@ class QNetwork:
         self.FINAL_EPS = 0
         self.EPS_DECAY_RATE = 0.95
         self.EPS_DECAY_STEP = 2000
-        self.MEMORY_SIZE = 10000
         self.GAMMA = 1
-        self.BATCH_SIZE = 50
-        # 要求状态为向量，动作离散
-        assert type(env.action_space) == gym.spaces.discrete.Discrete and \
-               type(env.observation_space) == gym.spaces.box.Box
+
+        # 要求动作离散
+        assert type(env.observation_space) == gym.spaces.box.Box
 
         # 建立若干成员变量
         self.env = env
         self.log_dir = '/'.join(['log', env_name, self.NAME, time.strftime('%m-%d-%H-%M')]) + '/'
+        os.makedirs(self.log_dir)
+
         self.n_episodes = 0
         self.n_timesteps = 0  # 总步数
 
@@ -39,7 +40,7 @@ class QNetwork:
             self.create_Q_layers()
             self.create_loss()
             if self.WRITE_SUMMARY: self.create_summary()
-            self.compute_grad = [x[0] for x in self.compute_grad]  # 留下梯度，去掉变量，方便train_sess
+            # self.compute_grad = [x[0] for x in self.compute_grad]  # 留下梯度，去掉变量，方便train_sess
             self.init = tf.global_variables_initializer()
 
     def create_z(self, prev, row, col):
@@ -68,7 +69,7 @@ class QNetwork:
 
     def create_Q_layers(self):
         """
-        建立网络特征之后部分
+        网络特征层之后部分
         """
         raise NotImplementedError()
 
@@ -157,9 +158,8 @@ class QNetwork:
             if self.WRITE_SUMMARY:
                 for sess, writer in self.sessions:
                     writer.add_summary(sess.run(self.summary), self.n_episodes)
-        self.train()
 
-    def train_sess(self, sess, batch, batch_ind):
+    def train_sess(self, sess, batch):
         """
         输入数据，训练网络
         """
@@ -168,6 +168,12 @@ class QNetwork:
         sess.run(self.apply_grad, feed_dict={self.layers[0]: state_batch,
                                              self.action_onehot: action_batch,
                                              self.y: y_batch})
+
+    def train(self, batch):
+        """
+        用batch训练网络
+        """
+        raise NotImplementedError()
 
     def save_hyperparameters(self):
         """

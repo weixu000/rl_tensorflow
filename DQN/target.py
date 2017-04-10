@@ -1,6 +1,6 @@
-import tensorflow as tf
 import numpy as np
-from memory import RandomReplay
+import tensorflow as tf
+from DQN.memory import *
 
 
 class OriginalDQN(RandomReplay):
@@ -13,14 +13,11 @@ class OriginalDQN(RandomReplay):
         super().__init__(env, env_name)
 
         # 目前只用一个网络
-        self.sessions = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir, self.graph))]
+        self.sessions = [(tf.Session(graph=self.graph),
+                          tf.summary.FileWriter(self.log_dir, self.graph) if self.WRITE_SUMMARY else None)]
         self.sessions[0][0].run(self.init)
 
-    def train(self):
-        """
-        随机取出记忆中的经验训练网络
-        """
-        batch, batch_ind = self.sample_memory()
+    def train(self, batch):
         state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
         # 计算公式中的maxQ，如果完成设为0
@@ -28,7 +25,7 @@ class OriginalDQN(RandomReplay):
         nxt_qs[done_batch] = 0
         y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
 
-        self.train_sess(self.sessions[0][0], batch, batch_ind)
+        self.train_sess(self.sessions[0][0], batch)
 
 
 class DoubleDQN(RandomReplay):
@@ -40,15 +37,12 @@ class DoubleDQN(RandomReplay):
     def __init__(self, env, env_name):
         super().__init__(env, env_name)
 
-        self.sessions = [(tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q1/', self.graph)),
-                         (tf.Session(graph=self.graph), tf.summary.FileWriter(self.log_dir + 'Q2/', self.graph))]
-        for s in self.sessions: s[0].run(self.init)
+        self.sessions = [(tf.Session(graph=self.graph),
+                          tf.summary.FileWriter(self.log_dir + i, self.graph) if self.WRITE_SUMMARY else None)
+                         for i in ['Q1/', 'Q2/']]
+        for s, _ in self.sessions: s.run(self.init)
 
-    def train(self):
-        """
-        随机取出记忆中的经验训练网络
-        """
-        batch, batch_ind = self.sample_memory()
+    def train(self, batch):
         state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
         # 任取一个训练
@@ -65,4 +59,4 @@ class DoubleDQN(RandomReplay):
         nxt_qs[done_batch] = 0  # 如果完成设为0
         y_batch += self.GAMMA * nxt_qs  # 计算公式，y在抽取时已经保存了reward
 
-        self.train_sess(sess1, batch, batch_ind)
+        self.train_sess(sess1, batch)
