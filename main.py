@@ -1,19 +1,19 @@
 import gym
-import fcqn
+import target_y
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 
-# ENV_NAME = 'CartPole-v0'
-# N_TEST = 100
-# GOAL = 195
-# MAX_EPISODES = 400
-
-
-ENV_NAME = 'CartPole-v1'
+ENV_NAME = 'CartPole-v0'
 N_TEST = 100
-GOAL = 475
-MAX_EPISODES = 500
+GOAL = 195
+MAX_EPISODES = 400
+
+
+# ENV_NAME = 'CartPole-v1'
+# N_TEST = 100
+# GOAL = 475
+# MAX_EPISODES = 500
 
 
 # ENV_NAME = 'MountainCar-v0'
@@ -72,7 +72,7 @@ def train_episodes(env, agent, n_episodes=500):
 
 def main():
     env = gym.make(ENV_NAME)
-    agent = fcqn.DoubleFCQN(env, ENV_NAME)  # 三层隐藏层
+    agent = target_y.DoubleDQN(env, ENV_NAME)  # 三层隐藏层
     agent.save_hyperparameters()
     train_episodes(env, agent, MAX_EPISODES)
 
