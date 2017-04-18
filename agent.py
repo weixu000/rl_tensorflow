@@ -1,9 +1,6 @@
+import json
 import numpy as np
 import tensorflow as tf
-import gym
-import json
-import time
-import os
 
 
 class QNetwork:
@@ -12,7 +9,7 @@ class QNetwork:
     """
     WRITE_SUMMARY = False
 
-    def __init__(self, env, env_name):
+    def __init__(self, env, log_dir):
         self.LEARNING_RATE = 2E-3
         self.INITIAL_EPS = 0.5
         self.FINAL_EPS = 0
@@ -20,14 +17,8 @@ class QNetwork:
         self.EPS_DECAY_STEP = 2000
         self.GAMMA = 1
 
-        # 要求动作离散
-        assert type(env.observation_space) == gym.spaces.box.Box
-
-        # 建立若干成员变量
         self.env = env
-        self.log_dir = '/'.join(['log', env_name, self.NAME, time.strftime('%m-%d-%H-%M')]) + '/'
-        os.makedirs(self.log_dir)
-
+        self.log_dir = log_dir
         self.n_episodes = 0
         self.n_timesteps = 0  # 总步数
 

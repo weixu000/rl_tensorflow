@@ -1,19 +1,17 @@
-import numpy as np
-import tensorflow as tf
 import heapq
 from collections import deque
 from DQN.network import *
 
 
-class RandomReplay(OriginalQLayer):
+class RandomReplay(DuelingDQN):
     """
     随机经验回放
     """
 
-    def __init__(self, env, env_name):
+    def __init__(self, env, log_dir):
         self.MEMORY_SIZE = 10000
         self.BATCH_SIZE = 50
-        super().__init__(env, env_name)
+        super().__init__(env, log_dir)
         self.memory = deque(maxlen=self.MEMORY_SIZE)
 
     def perceive(self, state, action, reward, nxt_state, done):
@@ -47,12 +45,12 @@ class RankBasedPrioritizedReplay(DuelingDQN):
             self.priority = priority
             self.data = data
 
-    def __init__(self, env, env_name):
+    def __init__(self, env, log_dir):
         self.MEMORY_SIZE = 10000
         self.BATCH_SIZE = 50
         self.ALPHA = 3  # 幂分布的指数
         self.SORT_WHEN = 5000  # 何时完全排序记忆
-        super().__init__(env, env_name)
+        super().__init__(env, log_dir)
 
         self.memory = []
         # 最近的记忆，尚未训练

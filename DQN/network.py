@@ -5,10 +5,10 @@ from agent import QNetwork
 
 
 class FCQN(QNetwork):
-    def __init__(self, env, env_name):
+    def __init__(self, env, log_dir):
         self.HIDDEN_LAYERS = [30, 20]
         assert type(env.action_space) == gym.spaces.discrete.Discrete
-        super().__init__(env, env_name)
+        super().__init__(env, log_dir)
 
     def create_feature(self):
         self.layers_n += [self.env.observation_space.shape[0]] + self.HIDDEN_LAYERS  # 全连接特征层中神经元个数
@@ -18,11 +18,11 @@ class FCQN(QNetwork):
 
 
 class ConvQN(QNetwork):
-    def __init__(self, env, env_name):
+    def __init__(self, env, log_dir):
         self.CONVOLUTION = [
             ('conv', {'weight': [5, 5], 'bias': 32, 'strides': [1, 1, 1, 1]}),
             ('pooling', {'ksize': [1, 2, 2, 1], 'strides': [1, 2, 2, 1]})]
-        super().__init__(env, env_name)
+        super().__init__(env, log_dir)
 
     def conv2d(self, layer):
         W = tf.Variable(tf.truncated_normal(layer['weights'], stddev=0.1), name='weights')
@@ -51,9 +51,9 @@ class OriginalQLayer(FCQN):
     DQN原来的网络结构
     """
 
-    def __init__(self, env, env_name):
+    def __init__(self, env, log_dir):
         self.Q_HIDDEN_LAYERS = [20, 10]
-        super().__init__(env, env_name)
+        super().__init__(env, log_dir)
 
     def create_Q_layers(self):
         self.layers += self.create_FC_stream(self.layers[-1],
@@ -70,10 +70,10 @@ class DuelingDQN(FCQN):
     Dueling网络
     """
 
-    def __init__(self, env, env_name):
+    def __init__(self, env, log_dir):
         self.STATE_HIDDEN_LAYERS = [10, 5]
         self.ADVANTAGE_HIDDEN_LAYERS = [10, 5]
-        super().__init__(env, env_name)
+        super().__init__(env, log_dir)
 
     def create_Q_layers(self):
         """

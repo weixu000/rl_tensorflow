@@ -1,5 +1,3 @@
-import numpy as np
-import tensorflow as tf
 from DQN.memory import *
 
 
@@ -7,10 +5,9 @@ class OriginalDQN(RandomReplay):
     """
     Nature DQN
     """
-    NAME = 'Original'
 
-    def __init__(self, env, env_name):
-        super().__init__(env, env_name)
+    def __init__(self, env, log_dir):
+        super().__init__(env, log_dir)
 
         # 目前只用一个网络
         self.sessions = [(tf.Session(graph=self.graph),
@@ -32,10 +29,9 @@ class DoubleDQN(RandomReplay):
     """
     Double DQN
     """
-    NAME = 'Double'
 
-    def __init__(self, env, env_name):
-        super().__init__(env, env_name)
+    def __init__(self, env, log_dir):
+        super().__init__(env, log_dir)
 
         self.sessions = [(tf.Session(graph=self.graph),
                           tf.summary.FileWriter(self.log_dir + i, self.graph) if self.WRITE_SUMMARY else None)
