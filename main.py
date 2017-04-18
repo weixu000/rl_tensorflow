@@ -1,7 +1,11 @@
 import os
 import pickle
 import time
+import gym
 import matplotlib.pyplot as plt
+from DQN.dqn import DQN
+from DQN.memory import *
+from DQN.network import *
 from DQN.target import *
 
 ENV_NAME = 'CartPole-v0'
@@ -72,9 +76,13 @@ def train_episodes(env, agent, n_episodes=500):
 
 def main():
     env = gym.make(ENV_NAME)
-    log_dir = '/'.join(['log', ENV_NAME, 'Double', time.strftime('%m-%d-%H-%M')]) + '/'
+    log_dir = '/'.join(['log', ENV_NAME, 'test', time.strftime('%m-%d-%H-%M')]) + '/'
     os.makedirs(log_dir)
-    agent = DoubleDQN(env, log_dir)  # 三层隐藏层
+    agent = DQN(env, log_dir,
+                FCFeatures(),
+                DuelingDQN(),
+                RandomReplay(),
+                OriginalDQN())
     agent.save_hyperparameters()
     train_episodes(env, agent, MAX_EPISODES)
 
