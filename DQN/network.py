@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 
 
 def create_z(prev, col):
@@ -67,29 +68,50 @@ class FCFeatures(FeaturesNet):
 
 class ConvFeatures(FeaturesNet):
     def __init__(self, CONVOLUTION=(('conv', {'weight': [5, 5], 'bias': 32, 'strides': [1, 1, 1, 1]}),
-                                    ('pooling', {'ksize': [1, 2, 2, 1], 'strides': [1, 2, 2, 1]}))):
+                                    ('pooling', {'ksize': [1, 2, 2, 1], 'strides': [1, 2, 2, 1]})),
+                 FC_CONNECTION_N=20):
+        """
+        :param CONVOLUTION: 卷积网络参数
+        :param FC_CONNECTION_N: 最后全连接层神经元个数
+        """
         self.CONVOLUTION = list(CONVOLUTION)
+        self.FC_CONNECTION_N = FC_CONNECTION_N
 
-    def __conv2d(self, layer, layers):
-        W = tf.Variable(tf.truncated_normal(layer['weights'], stddev=0.1), name='weights')
-        b = tf.Variable(tf.constant(0.1, shape=layer['bias']), name='bias')
-        layers.append(tf.nn.relu(tf.nn.conv2d(layers[-1], W, strides=layer['strides'], padding='SAME') + b))
+    def __conv2d(self, layer_t):
+        """
+        生成卷积层
+        :param layer_t: 卷积层参数
+        """
+        W = tf.Variable(tf.truncated_normal(layer_t['weights'], stddev=0.1), name='kernel')
+        b = tf.Variable(tf.constant(0.1, shape=layer_t['bias']), name='bias')
+        self.layers.append(tf.nn.relu(tf.nn.conv2d(self.layers[-1], W, strides=layer_t['strides'], padding='SAME') + b))
 
-    def __max_pool(self, layer, layers):
-        layers.append(tf.nn.max_pool(layers[-1], ksize=layer['ksize'],
-                                     strides=layer['strides'], padding='SAME'))
+    def __max_pool(self, layer_t):
+        """
+        生成最大池化层
+        :param layer_t: 池化层参数
+        """
+        self.layers.append(tf.nn.max_pool(self.layers[-1], ksize=layer_t['ksize'],
+                                          strides=layer_t['strides'], padding='SAME'))
 
     def create_features(self, layers_n):
         with tf.name_scope('input_layer'):
-            layers = [tf.placeholder(tf.float32, [None] + layers_n[0])]  # 输入层
-        for i, (layer_t, layer) in enumerate(self.CONVOLUTION):
-            if layer_t == 'conv':
-                with tf.name_scope('conv_layer{}'.format(i)):
-                    self.__conv2d(layer, layers)
-            elif layer_t == 'conv':
-                with tf.name_scope('pooling_layer{}'.format(i)):
-                    self.__max_pool(layer, layers)
-        return layers
+            self.layers = [tf.placeholder(tf.float32, [None] + layers_n[0])]  # 输入层
+        with tf.name_scope('feature_layer'):
+            for i, (layer_t, layer) in enumerate(self.CONVOLUTION):
+                if layer_t == 'conv':  # 卷积层
+                    with tf.name_scope('conv_layer{}'.format(i)):
+                        self.__conv2d(layer)
+                elif layer_t == 'pooling':  # 池化层
+                    with tf.name_scope('pooling_layer{}'.format(i)):
+                        self.__max_pool(layer)
+            # 加一层全连接层，是之后的行为一致
+            self.layers += create_FC_stream(
+                tf.reshape(self.layers[-1], shape=[-1, np.prod(self.layers[-1].shape.as_list()[1:])]),
+                [self.FC_CONNECTION_N], 'fully_connected')
+        # 更新layers_n
+        layers_n += self.CONVOLUTION + [self.FC_CONNECTION_N]
+        return self.layers
 
 
 class QLayerNet:
