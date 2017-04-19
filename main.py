@@ -76,12 +76,12 @@ def train_episodes(env, agent, n_episodes=500):
 
 def main():
     env = gym.make(ENV_NAME)
-    log_dir = '/'.join(['log', ENV_NAME, 'test', time.strftime('%m-%d-%H-%M')]) + '/'
+    log_dir = '/'.join(['log', 'test', time.strftime('%m-%d-%H-%M')]) + '/'
     os.makedirs(log_dir)
     agent = DQN(env, log_dir,
                 FCFeatures(),
                 DuelingDQN(),
-                RandomReplay(),
+                RankBasedPrioritizedReplay(),
                 OriginalDQN())
     agent.save_hyperparameters()
     train_episodes(env, agent, MAX_EPISODES)
