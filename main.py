@@ -31,7 +31,7 @@ MAX_EPISODES = 400
 # MAX_EPISODES = 1000
 
 
-def play(env, action_select, perceive, render=False):
+def play_episode(env, action_select, perceive, render=False):
     ret = 0
     observation = env.reset()
     while True:
@@ -49,7 +49,7 @@ def train_episodes(env, agent, n_episodes=500):
     try:
         for i_episode in range(n_episodes):
             # if i_episode % N_TEST == 0: play(env, agent.greedy_action, None, True)
-            rewards.append(play(env, agent.epsilon_greedy, agent.perceive))
+            rewards.append(play_episode(env, agent.epsilon_greedy, agent.perceive))
 
             aver_rewards.append(np.sum(rewards[-min(N_TEST, len(rewards)):]) / min(N_TEST, len(rewards)))
             print("Episode {} finished with test average reward {:.2f}".format(i_episode, aver_rewards[-1]))
@@ -58,20 +58,25 @@ def train_episodes(env, agent, n_episodes=500):
                 break
         else:
             r = 0
-            for _ in range(N_TEST): r += play(env, agent.greedy_action, None)
+            for _ in range(N_TEST): r += play_episode(env, agent.greedy_action, None)
             r /= N_TEST
-            print("Maximum {} of episodes exceeded with greedy action reward {}".format(n_episodes, r))
+            print("Maximum {} of episodes exceeded with greedy average reward {}".format(n_episodes, r))
     finally:
-        with open(agent.log_dir + 'rewards.pickle', 'wb') as f:
-            pickle.dump((rewards, aver_rewards), f)
+        return rewards, aver_rewards
 
-        # 画图
-        plt.plot(rewards, label='Return for each episode')
-        plt.plot(aver_rewards, label='Average return for last {} episodes'.format(N_TEST))
-        plt.legend(frameon=False)
-        plt.xlabel('Episode')
-        plt.ylabel('Return')
-        plt.show()
+
+def save_rewards(log_dir, rewards, aver_rewards):
+    with open(log_dir + 'rewards.pickle', 'wb') as f:
+        pickle.dump((rewards, aver_rewards), f)
+
+
+def plot_rewards(rewards, aver_rewards):
+    plt.plot(rewards, label='Return for each episode')
+    plt.plot(aver_rewards, label='Average return for last {} episodes'.format(N_TEST))
+    plt.legend(frameon=False)
+    plt.xlabel('Episode')
+    plt.ylabel('Return')
+    plt.show()
 
 
 def main():
@@ -79,12 +84,15 @@ def main():
     log_dir = '/'.join(['log', 'test', time.strftime('%m-%d-%H-%M')]) + '/'
     os.makedirs(log_dir)
     agent = DQN(env.observation_space.shape, env.action_space.n, log_dir,
-                FCFeatures(),
-                DuelingDQN(),
-                RankBasedPrioritizedReplay(),
-                OriginalDQN())
+                FCFeatures([20, 20]),
+                OriginalQLayer([10]),
+                RandomReplay(5000, 100),
+                OriginalDQN(),
+                1E-3, 0.3, 0, 0.95, 2000)
     agent.save_hyperparameters()
-    train_episodes(env, agent, MAX_EPISODES)
+    rewards, aver_rewards = train_episodes(env, agent, MAX_EPISODES)
+    save_rewards(agent.log_dir, rewards, aver_rewards)
+    plot_rewards(rewards, aver_rewards)
 
 
 if __name__ == "__main__":
