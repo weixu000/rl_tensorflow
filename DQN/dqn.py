@@ -11,10 +11,12 @@ class DQN:
     DQN总的类
     """
 
-    def __init__(self, env, log_dir, features: FeaturesNet, Q_layers: QLayerNet, memory: Memory, target: Target,
+    def __init__(self, observation_shape, action_n, log_dir,
+                 features: FeaturesNet, Q_layers: QLayerNet, memory: Memory, target: Target,
                  LEARNING_RATE=2E-3, INITIAL_EPS=0.5, FINAL_EPS=0, EPS_DECAY_RATE=0.95, EPS_DECAY_STEP=2000):
         """
-        :param env: 环境
+        :param observation_shape: observation数组尺寸
+        :param observation_shape: 动作个数
         :param log_dir: log文件路径
         :param features: 网络feature部分
         :param Q_layers: 网络Q值部分
@@ -32,7 +34,8 @@ class DQN:
         self.EPS_DECAY_RATE = EPS_DECAY_RATE
         self.EPS_DECAY_STEP = EPS_DECAY_STEP
 
-        self.env = env
+        self.observation_shape = observation_shape
+        self.action_n = action_n
         self.log_dir = log_dir
         self.n_episodes = 0
         self.n_timesteps = 0
@@ -44,10 +47,10 @@ class DQN:
 
         # 构建网络
         self.__graph = tf.Graph()
-        self.__layers_n = [self.env.observation_space.shape[0]]  # 输入层为observation
+        self.__layers_n = [self.observation_shape]  # 输入层为observation
         with self.__graph.as_default():
             self.__layers = self.__features.create_features(self.__layers_n)  # 初始化网络feature部分
-            self.__Q_layers.create_Q_layers(self.env.action_space.n, self.__layers_n, self.__layers)  # 初始化网络Q值部分
+            self.__Q_layers.create_Q_layers(self.action_n, self.__layers_n, self.__layers)  # 初始化网络Q值部分
             self.__memory.create_loss(self.__layers[0], self.__layers[-1], self.LEARNING_RATE)  # 初始化误差
             self.init = tf.global_variables_initializer()
             self.__target.create_target(self.init, self.__layers[0], self.__layers[-1])  # 初始化目标Q值计算
@@ -81,7 +84,7 @@ class DQN:
         """
         eps = self.FINAL_EPS + (self.INITIAL_EPS - self.FINAL_EPS) * self.EPS_DECAY_RATE ** (
             self.n_timesteps / self.EPS_DECAY_STEP)
-        return self.greedy_action(state) if np.random.rand() > eps else self.env.action_space.sample()
+        return self.greedy_action(state) if np.random.rand() > eps else np.random.choice(self.action_n)
 
     def perceive(self, state, action, reward, nxt_state, done):
         """

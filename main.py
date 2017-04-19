@@ -78,7 +78,7 @@ def main():
     env = gym.make(ENV_NAME)
     log_dir = '/'.join(['log', 'test', time.strftime('%m-%d-%H-%M')]) + '/'
     os.makedirs(log_dir)
-    agent = DQN(env, log_dir,
+    agent = DQN(env.observation_space.shape, env.action_space.n, log_dir,
                 FCFeatures(),
                 DuelingDQN(),
                 RankBasedPrioritizedReplay(),
