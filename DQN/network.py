@@ -61,17 +61,15 @@ class FCFeatures(FeaturesNet):
     def create_features(self, layers_n):
         layers_n += self.HIDDEN_LAYERS
         with tf.name_scope('input_layer'):
-            layers = [tf.placeholder(tf.float32, [None, layers_n[0]])]  # 输入层
+            layers = [tf.placeholder(tf.float32, [None] + layers_n[0])]  # 输入层
         layers += create_FC_stream(layers[-1], layers_n[1:], 'feature_layer')
         return layers
 
 
 class ConvFeatures(FeaturesNet):
-    def __init__(self, CONVOLUTION=(('conv', {'weight': [5, 5], 'bias': 32, 'strides': [1, 1, 1, 1]}),
-                                    ('pooling', {'ksize': [1, 2, 2, 1], 'strides': [1, 2, 2, 1]})),
-                 FC_CONNECTION_N=20):
+    def __init__(self, CONVOLUTION, FC_CONNECTION_N):
         """
-        :param CONVOLUTION: 卷积网络参数
+        :param CONVOLUTION: [('conv', {'weight': ..., 'bias': ..., 'strides': ...}),('pooling', {'ksize': ..., 'strides': ...})]
         :param FC_CONNECTION_N: 最后全连接层神经元个数
         """
         self.CONVOLUTION = list(CONVOLUTION)

@@ -20,6 +20,14 @@ class Memory:
         raise NotImplementedError()
 
     def perceive(self, state, action, reward, nxt_state, done):
+        """
+        接受经验
+        :param state: 状态
+        :param action: 动作onehot表示
+        :param reward: 
+        :param nxt_state: 动作导致的下一个状态
+        :param done: 是否终态
+        """
         raise NotImplementedError()
 
     def replay(self, compute_y):
@@ -38,13 +46,15 @@ class RandomReplay(Memory):
     随机经验回放
     """
 
-    def __init__(self, MEMORY_SIZE=10000, BATCH_SIZE=50):
+    def __init__(self, MEMORY_SIZE=10000, BATCH_SIZE=50, TRAIN_REPEAT=2):
         """
         :param MEMORY_SIZE: 记忆总量大小
         :param BATCH_SIZE: 每次回访的个数
+        :param TRAIN_REPEAT: 每次replay重复的batch
         """
         self.MEMORY_SIZE = MEMORY_SIZE
         self.BATCH_SIZE = BATCH_SIZE
+        self.TRAIN_REPEAT = TRAIN_REPEAT
         self.__memory = deque(maxlen=self.MEMORY_SIZE)
 
     def create_loss(self, input_layer, Q_layer, learning_rate):
@@ -71,10 +81,11 @@ class RandomReplay(Memory):
         self.__memory.append((state, action, reward, nxt_state, done))
 
     def replay(self, compute_y):
-        batch_ind = np.random.choice(len(self.__memory), min(self.BATCH_SIZE, len(self.__memory)), False)
-        batch = [x for i, x in enumerate(self.__memory) if i in batch_ind]
-        sess, batch = compute_y([np.array([m[i] for m in batch]) for i in range(5)])
-        self.__train_sess(sess, batch)
+        for _ in range(self.TRAIN_REPEAT):
+            batch_ind = np.random.choice(len(self.__memory), min(self.BATCH_SIZE, len(self.__memory)), False)
+            batch = [x for i, x in enumerate(self.__memory) if i in batch_ind]
+            sess, batch = compute_y([np.array([m[i] for m in batch]) for i in range(5)])
+            self.__train_sess(sess, batch)
 
 
 class RankBasedPrioritizedReplay(Memory):
@@ -87,16 +98,17 @@ class RankBasedPrioritizedReplay(Memory):
         存储带优先级的经验
         """
 
-        def __lt__(self, other): return self.priority < other.priority
+        def __lt__(self, other): return self.priority > other.priority
 
         def __init__(self, priority, data):
             self.priority = priority
             self.data = data
 
-    def __init__(self, MEMORY_SIZE=10000, BATCH_SIZE=50, ALPHA=3, BETA=1, SORT_WHEN=2000):
+    def __init__(self, MEMORY_SIZE=10000, BATCH_SIZE=50, TRAIN_REPEAT=2, ALPHA=3, BETA=1, SORT_WHEN=500):
         """
         :param MEMORY_SIZE: 记忆总量大小
         :param BATCH_SIZE: 每次回访的个数
+        :param TRAIN_REPEAT: 每次replay重复的batch
         :param ALPHA: 幂分布的指数
         :param SORT_WHEN: 何时完全排序记忆
         """
@@ -105,10 +117,10 @@ class RankBasedPrioritizedReplay(Memory):
         self.ALPHA = ALPHA
         self.BETA = BETA
         self.SORT_WHEN = SORT_WHEN
+        self.TRAIN_REPEAT = TRAIN_REPEAT
 
         self.__n_perceived = 0
         self.__memory = []
-        self.__recent_memory = []  # 最近的记忆，尚未训练
 
     def create_loss(self, input_layer, Q_layer, learning_rate):
         self.__input_layer = input_layer
@@ -118,11 +130,10 @@ class RankBasedPrioritizedReplay(Memory):
         with tf.name_scope('train'):
             self.__y = tf.placeholder(tf.float32, [None], name='target')
             self.__action_onehot = tf.placeholder(tf.float32, [None, Q_layer.shape[1].value], name='action_onehot')
-            action_value = tf.reduce_sum(Q_layer * self.__action_onehot, reduction_indices=1,
-                                         name='sample_Q')
+            action_value = tf.reduce_sum(Q_layer * self.__action_onehot, reduction_indices=1, name='sample_Q')
             self.__sample_weights = tf.placeholder(tf.float32, [None], name='IS_weights')
             self.__loss_vec = self.__y - action_value
-            self.__loss = tf.reduce_mean(tf.square(self.__loss_vec * self.__sample_weights), name='loss')
+            self.__loss = tf.reduce_sum(tf.square(self.__loss_vec) * self.__sample_weights, name='loss')
             self.__train_step = tf.train.AdamOptimizer(learning_rate).minimize(self.__loss)
 
     def __train_sess(self, sess, batch, sample_weights):
@@ -135,35 +146,31 @@ class RankBasedPrioritizedReplay(Memory):
 
     def perceive(self, state, action, reward, nxt_state, done):
         self.__n_perceived += 1
-        # 插入最近的记忆
-        experience = [state, action, reward, nxt_state, done]
-        self.__recent_memory.append(self.Experience(None, experience))
+
+        self.__memory.append(self.Experience(self.__memory[0].priority + 1 if len(self.__memory) else 0,
+                                             [state, action, reward, nxt_state, done]))
+        heapq.heapify(self.__memory)
 
         # 记忆过多，则删除误差最小的
-        if len(self.__memory) >= self.MEMORY_SIZE: heapq.heappop(self.__memory)
+        if len(self.__memory) >= self.MEMORY_SIZE: del self.__memory[len(self.__memory) - self.BATCH_SIZE:]
 
         # 记忆较多时，进行排序
         if not self.__n_perceived % self.SORT_WHEN: self.__memory.sort()
 
     def replay(self, compute_y):
-        # 按幂分布取出记忆
-        batch_ind = np.random.power(self.ALPHA, self.BATCH_SIZE) * len(self.__memory)
-        batch_ind = list(batch_ind.astype(int))
+        for _ in range(self.TRAIN_REPEAT):
+            # 按幂分布取出记忆
+            batch_ind = len(self.__memory) * (1 - np.random.power(self.ALPHA, self.BATCH_SIZE))
+            batch_ind = list(set(batch_ind.astype(int)))
 
-        # 强制回访最近的记忆
-        batch_ind += list(range(len(self.__memory), len(self.__memory) + len(self.__recent_memory)))
-        batch_ind = list(set(batch_ind))
-        self.__memory += self.__recent_memory
-        self.__recent_memory = []
+            # 计算y值
+            batch = [x.data for i, x in enumerate(self.__memory) if i in batch_ind]
+            sess, batch = compute_y([np.array([m[i] for m in batch]) for i in range(5)])
 
-        # 计算y值
-        batch = [x.data for i, x in enumerate(self.__memory) if i in batch_ind]
-        sess, batch = compute_y([np.array([m[i] for m in batch]) for i in range(5)])
-
-        # 训练网络，更新经验优先级
-        sample_weights = self.__compute_sample_weights(batch_ind)
-        self.__train_sess(sess, batch, sample_weights)
-        self.__update_errors(sess, batch, batch_ind)
+            # 训练网络，更新经验优先级
+            sample_weights = self.__compute_sample_weights(batch_ind)
+            self.__train_sess(sess, batch, sample_weights)
+            self.__update_errors(sess, batch, batch_ind)
 
     def __compute_sample_weights(self, batch_ind):
         """
@@ -171,7 +178,7 @@ class RankBasedPrioritizedReplay(Memory):
         :param batch_ind: batch的编号
         :return: IS weights
         """
-        sample_weights = self.ALPHA * ((np.array(batch_ind) + 0.5) / len(self.__memory)) ** (self.ALPHA - 1)
+        sample_weights = self.ALPHA * (1 - np.array(batch_ind) / len(self.__memory)) ** (self.ALPHA - 1)
         sample_weights = (sample_weights * len(batch_ind)) ** (-self.BETA)
         sample_weights /= sample_weights.max()
         return sample_weights
