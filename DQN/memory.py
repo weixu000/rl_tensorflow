@@ -82,8 +82,8 @@ class RandomReplay(Memory):
 
     def replay(self, compute_y):
         for _ in range(self.TRAIN_REPEAT):
-            batch_ind = np.random.choice(len(self.__memory), min(self.BATCH_SIZE, len(self.__memory)), False)
-            batch = [x for i, x in enumerate(self.__memory) if i in batch_ind]
+            batch_ind = np.random.choice(len(self.__memory), self.BATCH_SIZE)
+            batch = list(map(lambda i: self.__memory[i].data, batch_ind))
             sess, batch = compute_y([np.array([m[i] for m in batch]) for i in range(5)])
             self.__train_sess(sess, batch)
 
@@ -104,7 +104,8 @@ class RankBasedPrioritizedReplay(Memory):
             self.priority = priority
             self.data = data
 
-    def __init__(self, MEMORY_SIZE=10000, BATCH_SIZE=50, TRAIN_REPEAT=2, ALPHA=3, BETA=1, SORT_WHEN=500):
+    def __init__(self, MEMORY_SIZE=10000, BATCH_SIZE=50, TRAIN_REPEAT=2, ALPHA=3, BETA_INITIAL=0.5, BETA_GROW_RATE=1E-3,
+                 SORT_WHEN=100):
         """
         :param MEMORY_SIZE: 记忆总量大小
         :param BATCH_SIZE: 每次回访的个数
@@ -115,7 +116,8 @@ class RankBasedPrioritizedReplay(Memory):
         self.MEMORY_SIZE = MEMORY_SIZE
         self.BATCH_SIZE = BATCH_SIZE
         self.ALPHA = ALPHA
-        self.BETA = BETA
+        self.BETA = BETA_INITIAL
+        self.BETA_RATE = BETA_GROW_RATE
         self.SORT_WHEN = SORT_WHEN
         self.TRAIN_REPEAT = TRAIN_REPEAT
 
@@ -126,7 +128,6 @@ class RankBasedPrioritizedReplay(Memory):
         self.__input_layer = input_layer
         self.__Q_layer = Q_layer
 
-        # 训练用到的指示值y（相当于图像识别的标签），action（最小化特定动作Q的误差），loss
         with tf.name_scope('train'):
             self.__y = tf.placeholder(tf.float32, [None], name='target')
             self.__action_onehot = tf.placeholder(tf.float32, [None, Q_layer.shape[1].value], name='action_onehot')
@@ -147,12 +148,11 @@ class RankBasedPrioritizedReplay(Memory):
     def perceive(self, state, action, reward, nxt_state, done):
         self.__n_perceived += 1
 
-        self.__memory.append(self.Experience(self.__memory[0].priority + 1 if len(self.__memory) else 0,
-                                             [state, action, reward, nxt_state, done]))
-        heapq.heapify(self.__memory)
+        heapq.heappush(self.__memory, self.Experience(self.__memory[0].priority + 1 if len(self.__memory) else 0,
+                                                      [state, action, reward, nxt_state, done]))
 
         # 记忆过多，则删除误差最小的
-        if len(self.__memory) >= self.MEMORY_SIZE: del self.__memory[len(self.__memory) - self.BATCH_SIZE:]
+        if len(self.__memory) >= self.MEMORY_SIZE: del self.__memory[-int(0.1 * len(self.__memory)):]
 
         # 记忆较多时，进行排序
         if not self.__n_perceived % self.SORT_WHEN: self.__memory.sort()
@@ -161,10 +161,11 @@ class RankBasedPrioritizedReplay(Memory):
         for _ in range(self.TRAIN_REPEAT):
             # 按幂分布取出记忆
             batch_ind = len(self.__memory) * (1 - np.random.power(self.ALPHA, self.BATCH_SIZE))
-            batch_ind = list(set(batch_ind.astype(int)))
+            batch_ind = batch_ind.astype(int)
 
             # 计算y值
-            batch = [x.data for i, x in enumerate(self.__memory) if i in batch_ind]
+            batch = list(map(lambda i: self.__memory[i].data, batch_ind))
+            # batch = [x.data for i, x in enumerate(self.__memory) if i in batch_ind]
             sess, batch = compute_y([np.array([m[i] for m in batch]) for i in range(5)])
 
             # 训练网络，更新经验优先级
@@ -178,9 +179,9 @@ class RankBasedPrioritizedReplay(Memory):
         :param batch_ind: batch的编号
         :return: IS weights
         """
-        sample_weights = self.ALPHA * (1 - np.array(batch_ind) / len(self.__memory)) ** (self.ALPHA - 1)
+        sample_weights = self.ALPHA * (1 - batch_ind / len(self.__memory)) ** (self.ALPHA - 1)
         sample_weights = (sample_weights * len(batch_ind)) ** (-self.BETA)
-        sample_weights /= sample_weights.max()
+        self.BETA = min(self.BETA + self.BETA_RATE, 1)
         return sample_weights
 
     def __update_errors(self, sess, batch, batch_ind):
