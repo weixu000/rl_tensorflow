@@ -7,17 +7,18 @@ class Target:
     产生目标Q值基类
     """
 
-    def create_target(self, init, input_layer, Q_layer):
+    def create_target(self, input_layer, Q_layer):
         """
         初始化Target
-        :param init: tf初始化所有variable
         :param input_layer: 输入层
         :param Q_layer: Q输出层
+        :return: session
         """
         self._input_layer = input_layer
         self._Q_layer = Q_layer
         self._sessions = [tf.Session(), tf.Session()]
-        for s in self._sessions: s.run(init)
+
+        return self._sessions
 
     def compute_y(self, batch):
         """
@@ -87,7 +88,6 @@ class DoubleDQN(Target):
         a = np.eye(self._Q_layer.shape[1])[
             np.argmax(sess1.run(self._Q_layer, feed_dict={self._input_layer: nxt_state_batch}), axis=1)]
         # sess2计算Q
-        # nxt_qs = sess2.run(self._action_value, feed_dict={self._input_layer: nxt_state_batch, self._action_onehot: a})
         nxt_qs = sess2.run(self._Q_layer, feed_dict={self._input_layer: nxt_state_batch})
         nxt_qs = np.sum(nxt_qs * a, axis=1)
         nxt_qs[done_batch] = 0  # 如果完成设为0

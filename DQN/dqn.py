@@ -4,6 +4,7 @@ from DQN.network import FeaturesNet, QLayerNet
 from DQN.memory import Memory
 from DQN.target import Target
 import json
+import os
 
 
 class DQN:
@@ -13,7 +14,7 @@ class DQN:
 
     def __init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
                  features: FeaturesNet, Q_layers: QLayerNet, memory: Memory, target: Target,
-                 LEARNING_RATE=2E-3, EPS_INITIAL=0.5, EPS_DECAY_RATE=1 - 1E5):
+                 LEARNING_RATE=2E-3, EPS_INITIAL=0.5, EPS_END=0.1, EPS_STEP=1 - 1E5):
         """
         :param observation_shape: observation数组尺寸
         :param obervation_range: obeservation数组范围
@@ -26,27 +27,33 @@ class DQN:
         :param target: 目标Q值计算
         :param LEARNING_RATE: 学习速率
         :param EPS_INITIAL: 初始epsilon
-        :param EPS_DECAY_RATE: epsilon衰减率
+        :param EPS_STEP: epsilon衰减率
+        :param EPS_END: epsilon终值
         """
         self.LEARNING_RATE = LEARNING_RATE
-        self.EPS_INITIAL = EPS_INITIAL
-        self.EPS_DECAY_RATE = EPS_DECAY_RATE
+        self.eps = EPS_INITIAL
+        self.EPS_STEP = EPS_STEP
+        self.EPS_END = EPS_END
 
         self.observation_shape = list(observation_shape)
         self.observation_range = obervation_range
         self.observations_in_state = observations_in_state
         self.__observation_buff = []  # 缓存一连串observation用以构成state
+
+        if len(self.observation_shape) == 2:
+            self.observation_shape = self.observation_shape + [1]
         if self.observations_in_state == 1:
             self.state_shape = self.observation_shape  # observation视作state
         else:
             if len(self.observation_shape) == 1:
                 self.state_shape = [self.observation_shape[0] * self.observations_in_state]  # 向量observation加长视作state
             else:
-                self.state_shape = self.observation_shape + [self.observations_in_state]  # 矩阵observation加一维视作state
+                self.state_shape = self.observation_shape[:2] + [
+                    self.observation_shape[2] * self.observations_in_state]  # 矩阵observation加一维视作state
+
         self.action_n = action_n
         self.log_dir = log_dir
-        self.n_episodes = 0
-        self.n_timesteps = 0
+        os.makedirs(self.log_dir, exist_ok=True)
 
         self.__features = features
         self.__Q_layers = Q_layers
@@ -60,8 +67,16 @@ class DQN:
             self.__layers = self.__features.create_features(self.__layers_n)  # 初始化网络feature部分
             self.__Q_layers.create_Q_layers(self.action_n, self.__layers_n, self.__layers)  # 初始化网络Q值部分
             self.__memory.create_loss(self.__layers[0], self.__layers[-1], self.LEARNING_RATE)  # 初始化误差
-            self.init = tf.global_variables_initializer()
-            self.__target.create_target(self.init, self.__layers[0], self.__layers[-1])  # 初始化目标Q值计算
+            self.__sessions = self.__target.create_target(self.__layers[0], self.__layers[-1])  # 初始化目标Q值计算
+
+            self.saver = tf.train.Saver()
+            init = tf.global_variables_initializer()
+
+        # 读取已经保存的网络
+        if os.path.exists(self.log_dir + 'ckpts/'):
+            self.load_sessions()
+        else:
+            for sess in self.__sessions: sess.run(init)
 
     def normalize_observation(self, observation):
         """
@@ -95,8 +110,8 @@ class DQN:
         """
         epsilon可能选取任意动作
         """
-        eps = self.EPS_INITIAL * self.EPS_DECAY_RATE ** self.n_timesteps
-        return self.greedy_action(observation) if np.random.rand() > eps else np.random.choice(self.action_n)
+        self.eps = max(self.eps - self.EPS_STEP, self.EPS_END)
+        return self.greedy_action(observation) if np.random.rand() > self.eps else np.random.choice(self.action_n)
 
     def step(self, observation, action, reward, done):
         """
@@ -121,8 +136,6 @@ class DQN:
             del self.__observation_buff[0]
 
         self.__prev_action = onehot  # 缓存一次动作
-        self.n_timesteps += 1
-        if done: self.n_episodes += 1
 
     def save_hyperparameters(self):
         """
@@ -134,3 +147,18 @@ class DQN:
             params[i] = x.save_hyperparameters()
         with open(self.log_dir + 'parameters.json', 'w') as f:
             json.dump(params, f, indent=4, sort_keys=True)
+
+    def load_sessions(self):
+        """
+        恢复网络
+        """
+        for i, sess in enumerate(self.__sessions):
+            self.saver.restore(sess, self.log_dir + 'ckpts/' + str(i) + '.ckpt')
+
+    def save_sessions(self):
+        """
+        保存网络
+        """
+        os.makedirs(self.log_dir + 'ckpts/', exist_ok=True)
+        for i, sess in enumerate(self.__sessions):
+            self.saver.save(sess, self.log_dir + 'ckpts/' + str(i) + '.ckpt')

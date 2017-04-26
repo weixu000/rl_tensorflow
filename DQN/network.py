@@ -69,7 +69,7 @@ class FCFeatures(FeaturesNet):
 class ConvFeatures(FeaturesNet):
     def __init__(self, CONVOLUTION, FC_CONNECTION_N):
         """
-        :param CONVOLUTION: [('conv', {'weight': ..., 'bias': ..., 'strides': ...}),('pooling', {'ksize': ..., 'strides': ...})]
+        :param CONVOLUTION: [('conv', {'weights': ..., 'strides': ...}),('pooling', {'ksize': ..., 'strides': ...})]
         :param FC_CONNECTION_N: 最后全连接层神经元个数
         """
         self.CONVOLUTION = list(CONVOLUTION)
@@ -80,17 +80,19 @@ class ConvFeatures(FeaturesNet):
         生成卷积层
         :param layer_t: 卷积层参数
         """
-        W = tf.Variable(tf.truncated_normal(layer_t['weights'], stddev=0.1), name='kernel')
-        b = tf.Variable(tf.constant(0.1, shape=layer_t['bias']), name='bias')
-        self.layers.append(tf.nn.relu(tf.nn.conv2d(self.layers[-1], W, strides=layer_t['strides'], padding='SAME') + b))
+        W = tf.Variable(tf.truncated_normal(layer_t['weight'], stddev=0.1), name='kernel')
+        b = tf.Variable(tf.constant(0.1, shape=(layer_t['weight'][3],)), name='bias')
+        self.layers.append(
+            tf.nn.relu(
+                tf.nn.conv2d(self.layers[-1], W, strides=[1] + list(layer_t['strides']) + [1], padding='SAME') + b))
 
     def __max_pool(self, layer_t):
         """
         生成最大池化层
         :param layer_t: 池化层参数
         """
-        self.layers.append(tf.nn.max_pool(self.layers[-1], ksize=layer_t['ksize'],
-                                          strides=layer_t['strides'], padding='SAME'))
+        self.layers.append(tf.nn.max_pool(self.layers[-1], ksize=[1] + list(layer_t['ksize']) + [1],
+                                          strides=[1] + list(layer_t['strides']) + [1], padding='SAME'))
 
     def create_features(self, layers_n):
         with tf.name_scope('input_layer'):
@@ -154,7 +156,7 @@ class DuelingDQN(QLayerNet):
     Dueling网络
     """
 
-    def __init__(self, STATE_HIDDEN_LAYERS=(10, 5), ADVANTAGE_HIDDEN_LAYERS=(10, 5)):
+    def __init__(self, STATE_HIDDEN_LAYERS, ADVANTAGE_HIDDEN_LAYERS):
         """
         :param STATE_HIDDEN_LAYERS: 状态流隐藏层神经元数量
         :param ADVANTAGE_HIDDEN_LAYERS: 优势流隐藏层神经元数量

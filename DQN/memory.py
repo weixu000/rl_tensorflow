@@ -61,7 +61,7 @@ class RandomReplay(Memory):
         self._input_layer = input_layer
         self._Q_layer = Q_layer
 
-        # 训练用到的指示值y（相当于图像识别的标签），action（最小化特定动作Q的误差），loss
+        # 训练用到的指示值y（相当于图像识别的标签），jumpAction（最小化特定动作Q的误差），loss
         with tf.name_scope('train'):
             self.__y = tf.placeholder(tf.float32, [None], name='target')
             self.__action_onehot = tf.placeholder(tf.float32, [None, Q_layer.shape[1].value], name='action_onehot')
@@ -83,7 +83,7 @@ class RandomReplay(Memory):
     def replay(self, compute_y):
         for _ in range(self.TRAIN_REPEAT):
             batch_ind = np.random.choice(len(self.__memory), self.BATCH_SIZE)
-            batch = list(map(lambda i: self.__memory[i].data, batch_ind))
+            batch = list(map(lambda i: self.__memory[i], batch_ind))
             sess, batch = compute_y([np.array([m[i] for m in batch]) for i in range(5)])
             self.__train_sess(sess, batch)
 
@@ -104,7 +104,7 @@ class RankBasedPrioritizedReplay(Memory):
             self.priority = priority
             self.data = data
 
-    def __init__(self, MEMORY_SIZE=10000, BATCH_SIZE=50, TRAIN_REPEAT=2, ALPHA=3, BETA_INITIAL=0.5, BETA_GROW_RATE=1E-3,
+    def __init__(self, MEMORY_SIZE=10000, BATCH_SIZE=50, TRAIN_REPEAT=2, ALPHA=3, BETA_INITIAL=0.5, BETA_STEP=1E-3,
                  SORT_WHEN=100):
         """
         :param MEMORY_SIZE: 记忆总量大小
@@ -117,7 +117,7 @@ class RankBasedPrioritizedReplay(Memory):
         self.BATCH_SIZE = BATCH_SIZE
         self.ALPHA = ALPHA
         self.BETA = BETA_INITIAL
-        self.BETA_RATE = BETA_GROW_RATE
+        self.BETA_STEP = BETA_STEP
         self.SORT_WHEN = SORT_WHEN
         self.TRAIN_REPEAT = TRAIN_REPEAT
 
@@ -181,7 +181,7 @@ class RankBasedPrioritizedReplay(Memory):
         """
         sample_weights = self.ALPHA * (1 - batch_ind / len(self.__memory)) ** (self.ALPHA - 1)
         sample_weights = (sample_weights * len(batch_ind)) ** (-self.BETA)
-        self.BETA = min(self.BETA + self.BETA_RATE, 1)
+        self.BETA = min(self.BETA + self.BETA_STEP, 1)
         return sample_weights
 
     def __update_errors(self, sess, batch, batch_ind):
