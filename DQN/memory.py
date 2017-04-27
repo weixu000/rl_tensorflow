@@ -218,13 +218,8 @@ class ReturnPrioritizedReplay(PrioritizedReplay):
     """
 
     def __init__(self, MEMORY_SIZE=5000, BATCH_SIZE=50, TRAIN_REPEAT=2, ALPHA=3, BETA_INITIAL=0.5, BETA_STEP=1E-3,
-                 SORT_WHEN=50, GAMMA=0.99):
-        """
-        :param GAMMA: 折扣因子，与Target相同
-        """
+                 SORT_WHEN=50):
         super().__init__(MEMORY_SIZE, BATCH_SIZE, TRAIN_REPEAT, ALPHA, BETA_INITIAL, BETA_STEP, SORT_WHEN)
-        self.GAMMA = GAMMA
-
         self._tmp_memory = []
         self.__n_perceived = 0
 
@@ -233,7 +228,7 @@ class ReturnPrioritizedReplay(PrioritizedReplay):
         self._tmp_memory.append((state, action, reward, nxt_state, done))
         if done:
             ret = 0
-            for i, m in enumerate(self._tmp_memory): ret += m[2] * self.GAMMA ** i
+            for i, m in enumerate(self._tmp_memory): ret += m[2]
             self._memory += [self.Experience(ret, m) for m in self._tmp_memory]
             heapq.heapify(self._memory)
             self._tmp_memory.clear()
