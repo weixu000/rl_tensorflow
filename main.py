@@ -1,4 +1,3 @@
-import os
 import pickle
 import time
 import gym
@@ -7,32 +6,29 @@ from DQN.dqn import DQN
 from DQN.memory import *
 from DQN.network import *
 from DQN.target import *
+from flappy_bird.flappybird import FlappyBirdEnv
 
-# ENV_NAME = 'CartPole-v0'
-# N_TEST = 100
-# GOAL = 195
-# MAX_EPISODES = 100
-
-
-ENV_NAME = 'CartPole-v1'
+ENV_NAME = 'CartPole-v0'
 N_TEST = 100
-GOAL = 475
-MAX_EPISODES = 200
+GOAL = 195
+
+
+# ENV_NAME = 'CartPole-v1'
+# N_TEST = 100
+# GOAL = 475
 
 
 # ENV_NAME = 'MountainCar-v0'
 # N_TEST = 100
 # GOAL = -110
-# MAX_EPISODES = 1000
 
 
 # ENV_NAME = 'Acrobot-v1'
 # N_TEST = 100
 # GOAL = -100
-# MAX_EPISODES = 1000
 
 
-def play_episode(env, action_select, step, render=False):
+def play_episode(env, action_select, step=None, render=False):
     ret = 0
     observation = env.reset()
     while True:
@@ -45,63 +41,72 @@ def play_episode(env, action_select, step, render=False):
         if done: return ret
 
 
-def train_episodes(env, agent, n_test, goal, n_episodes=None):
-    rewards, aver_rewards = [], []
-    i_episode = 0
-    while True:
-        # if i_episode % N_TEST == 0: play(env, agent.greedy_action, None, True)
-        if len(rewards) and rewards[-1] >= goal:
-            rewards.append(play_episode(env, agent.greedy_action, agent.step))
-        else:
-            rewards.append(play_episode(env, agent.epsilon_greedy, agent.step))
-
-        aver_rewards.append(np.sum(rewards[-min(n_test, len(rewards)):]) / min(n_test, len(rewards)))
-        print("Episode {} finished with reward {:.2f} and average {:.2f}".format(i_episode,
-                                                                                 rewards[-1], aver_rewards[-1]))
-        if len(rewards) > n_test and aver_rewards[-1] >= goal:  # 按openai gym 要求完成了环境
-            print("Environment solved after {} episodes".format(i_episode))
-            break
-        i_episode += 1
-        if n_episodes and i_episode >= n_episodes:  # 超出最大episode数
-            r = 0
-            for _ in range(n_test): r += play_episode(env, agent.greedy_action, None)
-            r /= n_test
-            print("Maximum {} of episodes exceeded with greedy average reward {}".format(n_episodes, r))
-            break
-    return rewards, aver_rewards
+def train_episodes(env, agent, n_episodes):
+    returns = []
+    for _ in range(n_episodes):
+        returns.append(play_episode(env, agent.epsilon_greedy, agent.step))
+        # print('Train with reward {:.2f}'.format(returns[-1]))
+    return returns
 
 
-def save_rewards(log_dir, rewards, aver_rewards):
-    with open(log_dir + 'rewards.pickle', 'wb') as f:
-        pickle.dump((rewards, aver_rewards), f)
+def test_episodes(env, agent, n_episodes, goal):
+    returns = []
+    for _ in range(n_episodes): returns.append(play_episode(env, agent.greedy_action))
+    aver = np.average(returns)
+    print('Test with average reward {:.2f}'.format(aver))
+    if aver >= goal: print('The environment is considered solved')
+    return returns
 
 
-def plot_rewards(rewards, aver_rewards, n_aver):
-    plt.plot(rewards, label='Return for each episode')
-    plt.plot(aver_rewards, label='Average return for last {} episodes'.format(n_aver))
-    plt.legend(frameon=False)
-    plt.xlabel('Episode')
-    plt.ylabel('Return')
-    plt.show()
+def plot_returns(returns, title, x_label, y_label, path):
+    plt.plot(returns)
+    plt.title(title)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.savefig(path)
+    plt.clf()
 
 
-def main():
+def main_gym():
     env = gym.make(ENV_NAME)
     # env._max_episode_steps = float('inf')  # 打破最大step数限制
     log_dir = '/'.join(['log', ENV_NAME, time.strftime('%m-%d-%H-%M')]) + '/'
-    os.makedirs(log_dir)
-    agent = DQN(env.observation_space.shape, None, 1,
+    agent = DQN(env.observation_space.shape, None, 2,
                 env.action_space.n, log_dir,
-                FCFeatures([20]),
-                OriginalQLayer([20, 10]),
-                RandomReplay(5000, 100, 2),
-                DoubleDQN(),
-                2E-3, 0.2, 1 - 1E-3)
+                FCFeatures([20, 20]),
+                DuelingDQN([10, 5], [10, 5]),
+                ReturnPrioritizedReplay(5000, 100, 2, 5, 0.5, 1E-3, 100, 0.99),
+                DoubleDQN(0.99),
+                1E-2, 0.2, 0.01, 1E-3)
     agent.save_hyperparameters()
-    rewards, aver_rewards = train_episodes(env, agent, N_TEST, GOAL)
-    save_rewards(agent.log_dir, rewards, aver_rewards)
-    plot_rewards(rewards, aver_rewards, N_TEST)
+    train_returns, test_returns = [], []
+    for _ in range(50):
+        train_returns += train_episodes(env, agent, 10)
+        test_returns += test_episodes(env, agent, N_TEST, GOAL)
+
+    agent.save_sessions()
+    with open(log_dir + 'rewards.pickle', 'wb') as f:
+        pickle.dump((train_returns, test_returns), f)
+    plot_returns(train_returns, 'Train Returns', 'Episode', 'Return', log_dir + 'train.png')
+    plot_returns(test_returns, 'Train Returns', 'Episode', 'Return', log_dir + 'test.png')
+
+
+def main_flappybird():
+    env = FlappyBirdEnv()
+    log_dir = '/'.join(['log', 'FappyBird', '0']) + '/'
+    agent = DQN(env.observation_shape, [0, 255], 2,
+                env.action_n, log_dir,
+                ConvFeatures([('conv', {'weight': [4, 5, 2, 20], 'strides': [1, 1]}),
+                              ('conv', {'weight': [10, 5, 20, 10], 'strides': [10, 5]}),
+                              ('conv', {'weight': [2, 2, 10, 5], 'strides': [2, 2]})],
+                             [50]),
+                DuelingDQN([20, 20], [20, 20]),
+                RandomReplay(5000, 50, 2),
+                DoubleDQN(0.99),
+                1E-2, 0.1, 0.001, 1E-4)
+    agent.save_hyperparameters()
+    train_episodes(env, agent, 5000)
 
 
 if __name__ == "__main__":
-    main()
+    main_gym()
