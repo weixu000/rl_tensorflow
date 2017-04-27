@@ -14,7 +14,7 @@ class DQN:
 
     def __init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
                  features: FeaturesNet, Q_layers: QLayerNet, memory: Memory, target: Target,
-                 LEARNING_RATE=2E-3, EPS_INITIAL=0.5, EPS_END=0.1, EPS_STEP=1 - 1E5):
+                 LEARNING_RATE=2E-3, EPS_INITIAL=0.5, EPS_END=0.1, EPS_STEP=1E-5):
         """
         :param observation_shape: observation数组尺寸
         :param obervation_range: obeservation数组范围
@@ -142,9 +142,8 @@ class DQN:
         保存参数到parameters.json
         """
         params = dict(filter(lambda x: x[0][0].isupper(), self.__dict__.items()))
-        for i, x in {'Feature': self.__features, 'Q_Layers': self.__Q_layers, 'Memory': self.__memory,
-                     'Target': self.__target}.items():
-            params[i] = x.save_hyperparameters()
+        for i in [self.__features, self.__Q_layers, self.__memory, self.__target]:
+            params[i.__class__.__name__] = i.save_hyperparameters()
         with open(self.log_dir + 'parameters.json', 'w') as f:
             json.dump(params, f, indent=4, sort_keys=True)
 
