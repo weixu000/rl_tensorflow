@@ -70,7 +70,7 @@ class ConvFeatures(FeaturesNet):
     def __init__(self, CONVOLUTION, FC_CONNECTION_N):
         """
         :param CONVOLUTION: [('conv', {'weights': ..., 'strides': ...}),('pooling', {'ksize': ..., 'strides': ...})]
-        :param FC_CONNECTION_N: 最后全连接层神经元个数
+        :param FC_CONNECTION_N: 最后全连接层
         """
         self.CONVOLUTION = list(CONVOLUTION)
         self.FC_CONNECTION_N = FC_CONNECTION_N
@@ -108,7 +108,7 @@ class ConvFeatures(FeaturesNet):
             # 加一层全连接层，是之后的行为一致
             self.layers += create_FC_stream(
                 tf.reshape(self.layers[-1], shape=[-1, np.prod(self.layers[-1].shape.as_list()[1:])]),
-                [self.FC_CONNECTION_N], 'fully_connected')
+                self.FC_CONNECTION_N, 'fully_connected')
         # 更新layers_n
         layers_n += self.CONVOLUTION + [self.FC_CONNECTION_N]
         return self.layers

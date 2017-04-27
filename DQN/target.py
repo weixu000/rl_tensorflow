@@ -41,7 +41,7 @@ class SingleDQN(Target):
     Nature DQN
     """
 
-    def __init__(self, GAMMA=1, TARGET_HOLD=200):
+    def __init__(self, GAMMA=0.99, TARGET_HOLD=200):
         self.GAMMA = GAMMA
         self.TARGET_HOLD = TARGET_HOLD
         self._n_compute = 0
@@ -72,7 +72,7 @@ class DoubleDQN(Target):
     Double DQN
     """
 
-    def __init__(self, GAMMA=1):
+    def __init__(self, GAMMA=0.99):
         self.GAMMA = GAMMA
 
     def compute_y(self, batch):
