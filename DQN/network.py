@@ -35,11 +35,11 @@ class FeaturesNet:
     网络feature部分基类
     """
 
-    def create_features(self, layers_n):
+    def create(self, state_shape):
         """
         初始化网络feature部分
-        :param layers_n: 存储网络结构的list
-        :return: 网络feature部分各层tensor
+        :param state_shape: 存储网络结构的list
+        :return: 网络feature部分各层tensor，各tensor参数
         """
         raise NotImplementedError()
 
@@ -58,12 +58,12 @@ class FCFeatures(FeaturesNet):
         """
         self.HIDDEN_LAYERS = list(HIDDEN_LAYERS)
 
-    def create_features(self, layers_n):
-        layers_n += self.HIDDEN_LAYERS
+    def create(self, state_shape):
+        layers_n = state_shape + self.HIDDEN_LAYERS
         with tf.name_scope('input_layer'):
-            layers = [tf.placeholder(tf.float32, [None] + layers_n[0])]  # 输入层
+            layers = [tf.placeholder(tf.float32, [None] + [layers_n[0]])]  # 输入层
         layers += create_FC_stream(layers[-1], layers_n[1:], 'feature_layer')
-        return layers
+        return layers, layers_n
 
 
 class ConvFeatures(FeaturesNet):
@@ -94,9 +94,9 @@ class ConvFeatures(FeaturesNet):
         self.layers.append(tf.nn.max_pool(self.layers[-1], ksize=[1] + list(layer_t['ksize']) + [1],
                                           strides=[1] + list(layer_t['strides']) + [1], padding='SAME'))
 
-    def create_features(self, layers_n):
+    def create(self, state_shape):
         with tf.name_scope('input_layer'):
-            self.layers = [tf.placeholder(tf.float32, [None] + layers_n[0])]  # 输入层
+            self.layers = [tf.placeholder(tf.float32, [None] + state_shape)]  # 输入层
         with tf.name_scope('feature_layer'):
             for i, (layer_t, layer) in enumerate(self.CONVOLUTION):
                 if layer_t == 'conv':  # 卷积层
@@ -110,8 +110,8 @@ class ConvFeatures(FeaturesNet):
                 tf.reshape(self.layers[-1], shape=[-1, np.prod(self.layers[-1].shape.as_list()[1:])]),
                 self.FC_CONNECTION_N, 'fully_connected')
         # 更新layers_n
-        layers_n += self.CONVOLUTION + [self.FC_CONNECTION_N]
-        return self.layers
+        layers_n = state_shape + self.CONVOLUTION + [self.FC_CONNECTION_N]
+        return self.layers, layers_n
 
 
 class QLayerNet:
@@ -119,13 +119,12 @@ class QLayerNet:
     网络Q值部分基类
     """
 
-    def create_Q_layers(self, action_n, layers_n, layers):
+    def create_Q_layers(self, action_n, feature):
         """
         初始化网络Q值部分
         :param action_n: 动作个数
-        :param layers_n: 网络结构list
-        :param layers: 之前网络
-        :return: 网络Q值部分个层tensor
+        :param feature: 之前网络
+        :return: 网络Q值部分个层tensor,各tensor参数
         """
         raise NotImplementedError()
 
@@ -144,11 +143,11 @@ class OriginalQLayer(QLayerNet):
         """
         self.Q_HIDDEN_LAYERS = list(Q_HIDDEN_LAYERS)
 
-    def create_Q_layers(self, action_n, layers_n, layers):
-        layers += create_FC_stream(layers[-1], self.Q_HIDDEN_LAYERS, 'Q_hidden_layer')
-        layers_n += self.Q_HIDDEN_LAYERS + [action_n]
+    def create_Q_layers(self, action_n, feature):
+        layers = create_FC_stream(feature, self.Q_HIDDEN_LAYERS, 'Q_hidden_layer')
         with tf.name_scope('Q_layer'):
-            layers.append(create_z(layers[-1], layers_n[-1]))  # 输出层，没有激活函数
+            layers.append(create_z(layers[-1], action_n))  # 输出层，没有激活函数
+        return layers, self.Q_HIDDEN_LAYERS + [action_n]
 
 
 class DuelingDQN(QLayerNet):
@@ -164,26 +163,27 @@ class DuelingDQN(QLayerNet):
         self.STATE_HIDDEN_LAYERS = list(STATE_HIDDEN_LAYERS)
         self.ADVANTAGE_HIDDEN_LAYERS = list(ADVANTAGE_HIDDEN_LAYERS)
 
-    def create_Q_layers(self, action_n, layers_n, layers):
+    def create_Q_layers(self, action_n, feature):
         # 状态价值隐藏层
-        state_stream = create_FC_stream(layers[-1], self.STATE_HIDDEN_LAYERS,
+        state_stream = create_FC_stream(feature, self.STATE_HIDDEN_LAYERS,
                                         'state_hidden_layer')
         # 状态价值，不用RELU
         with tf.name_scope('state_value'):
             state_stream.append(create_z(state_stream[-1], 1))
 
         # 动作优势隐藏层
-        advantage = create_FC_stream(layers[-1], self.ADVANTAGE_HIDDEN_LAYERS,
+        advantage = create_FC_stream(feature, self.ADVANTAGE_HIDDEN_LAYERS,
                                      'advantage_hidden_layer')
         # 动作优势，不用RELU
         with tf.name_scope('action_advantage'):
             advantage.append(create_z(advantage[-1], action_n))
 
-        layers.append([state_stream, advantage])  # 并行加入网络中
+        layers = [[state_stream, advantage]]  # 并行加入网络中
         # 输出Q层
         with tf.name_scope('Q_layer'):
             layers.append(
                 state_stream[-1] + advantage[-1] - tf.reduce_mean(advantage[-1], axis=1, keep_dims=True))
+
         # 每层网络中神经元个数
-        layers_n += [[self.STATE_HIDDEN_LAYERS + [1], self.ADVANTAGE_HIDDEN_LAYERS + [action_n]]] \
-                    + [action_n]
+        layers_n = [[self.STATE_HIDDEN_LAYERS + [1], self.ADVANTAGE_HIDDEN_LAYERS + [action_n]]] + [action_n]
+        return layers, layers_n

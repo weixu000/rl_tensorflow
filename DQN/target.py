@@ -26,12 +26,6 @@ class Target:
         """
         raise NotImplementedError()
 
-    def __getitem__(self, state):
-        ret = np.zeros(self._Q_layer.shape[1])
-        for s in self._sessions:
-            ret += s.run(self._Q_layer, feed_dict={self._input_layer: [state]})[0]
-        return ret / len(self._sessions)
-
     def save_hyperparameters(self):
         return dict(filter(lambda x: x[0][0].isupper(), self.__dict__.items()))
 
@@ -79,10 +73,7 @@ class DoubleDQN(Target):
         state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
 
         # 任取一个训练
-        if np.random.rand() >= 0.5:
-            sess1, sess2 = self._sessions
-        else:
-            sess2, sess1 = self._sessions
+        sess1, sess2 = np.random.permutation(self._sessions)
 
         # sess1计算argmaxQ的onehot表示
         a = np.eye(self._Q_layer.shape[1])[

@@ -10,12 +10,13 @@ class Memory:
     同时也负责计算误差，训练网络
     """
 
-    def create_loss(self, input_layer, Q_layer, learning_rate):
+    def create(self, input_layer, Q_layer, learning_rate):
         """
         生成误差，建立优化器（用到learning_rate）
         :param input_layer: 输入层
         :param Q_layer: Q值层
         :param learning_rate:学习速率
+        :return 误差
         """
         raise NotImplementedError()
 
@@ -57,7 +58,7 @@ class RandomReplay(Memory):
         self.TRAIN_REPEAT = TRAIN_REPEAT
         self.__memory = deque(maxlen=self.MEMORY_SIZE)
 
-    def create_loss(self, input_layer, Q_layer, learning_rate):
+    def create(self, input_layer, Q_layer, learning_rate):
         self._input_layer = input_layer
         self._Q_layer = Q_layer
 
@@ -69,6 +70,7 @@ class RandomReplay(Memory):
                                          name='sample_Q')
             loss = tf.reduce_mean(tf.square(self.__y - action_value), name='loss')
             self.__train_step = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+        return loss
 
     def __train_sess(self, sess, batch):
         state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
@@ -123,7 +125,7 @@ class PrioritizedReplay(Memory):
 
         self._memory = []
 
-    def create_loss(self, input_layer, Q_layer, learning_rate):
+    def create(self, input_layer, Q_layer, learning_rate):
         self._input_layer = input_layer
         self._Q_layer = Q_layer
 
@@ -135,6 +137,8 @@ class PrioritizedReplay(Memory):
             self._loss_vec = self._y - action_value
             self._loss = tf.reduce_sum(tf.square(self._loss_vec) * self._sample_weights, name='loss')
             self._train_step = tf.train.AdamOptimizer(learning_rate).minimize(self._loss)
+
+        return self._loss
 
     def _train_sess(self, sess, batch, sample_weights):
         state_batch, action_batch, y_batch, nxt_state_batch, done_batch = batch
@@ -148,7 +152,7 @@ class PrioritizedReplay(Memory):
         # ind = np.arange(len(self._memory))
         # probs = (ind / len(self._memory)) ** (self.ALPHA - 1)
         # probs /= probs.sum()
-        ind = np.random.choice(len(self._memory), len(self._memory) // 3)
+        ind = np.random.choice(len(self._memory), len(self._memory) // 2)
         self._memory = [m for i, m in enumerate(self._memory) if i not in ind]
         heapq.heapify(self._memory)
 
