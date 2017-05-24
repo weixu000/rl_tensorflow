@@ -53,10 +53,15 @@ def main_gym():
     #              env.action_space.n, log_dir,
     #              FCFeatures([20, 20]),
     #              DuelingDQN([10, 5], [10, 5]))
-    agent = BootstrappedDDQN(env.observation_space.shape, None, 1,
-                             env.action_space.n, log_dir,
-                             FCFeatures([20, 20]),
-                             DuelingDQN([10, 5], [10, 5]))
+    # agent = BootstrappedDDQN(env.observation_space.shape, None, 1,
+    #                          env.action_space.n, log_dir,
+    #                          FCFeatures([20, 20]),
+    #                          DuelingDQN([10, 5], [10, 5]))
+    agent = ModelBasedDDQN(env.observation_space.shape, None, 1,
+                           env.action_space.n, log_dir,
+                           FCFeatures([20, 20]),
+                           DuelingDQN([10, 5], [10, 5]),
+                           EnvModel())
 
     agent.save_hyperparameters()
     for i in range(50):

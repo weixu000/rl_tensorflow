@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from DQN.network import FeaturesNet, QLayerNet
+from DQN.network import FeaturesNet, QLayerNet, EnvModel
 import matplotlib.pyplot as plt
 import json
 import os
@@ -30,6 +30,8 @@ class Agent:
         os.makedirs(self.log_dir, exist_ok=True)
         self.ckpt_file = self.log_dir + 'ckpts/' + 'session.ckpt'
 
+        self._components = []  # 各部分存储，方便
+
     def normalize_observation(self, observation):
         """
         正规化状态
@@ -58,7 +60,11 @@ class Agent:
         """
         保存参数到parameters.json
         """
-        return NotImplementedError()
+        params = dict(filter(lambda x: x[0][0].isupper(), self.__dict__.items()))
+        for i in self._components:
+            params[i.__class__.__name__] = i.save_hyperparameters()
+        with open(self.log_dir + 'parameters.json', 'w') as f:
+            json.dump(params, f, indent=4, sort_keys=True)
 
     def init_session(self):
         """
@@ -115,6 +121,7 @@ class DDQN(Agent):
 
         self._features = features
         self._Q_layers = Q_layers
+        self._components += [features, Q_layers]
 
         self.__memory = deque(maxlen=self.MEMORY_SIZE)
 
@@ -201,7 +208,9 @@ class DDQN(Agent):
         return action
 
     def _perceive(self, state, action, reward, nxt_state, done):
-        self.__memory.append((state, action, reward, nxt_state, done))
+        onehot = np.zeros((self.action_n,))  # 将动作单个数值转化成onehot向量
+        onehot[action] = 1
+        self.__memory.append((state, onehot, reward, nxt_state, done))
 
     def _do_explore(self, env, render=False):
         ret = 0
@@ -225,9 +234,7 @@ class DDQN(Agent):
                 del self._observation_buff[0]
 
             # 保存这个动作，下一次存储记忆用
-            onehot = np.zeros((self.action_n,))  # 将动作单个数值转化成onehot向量
-            onehot[action] = 1
-            self.__prev_action = onehot
+            self.__prev_action = action
 
             observation = nxt_observation
             ret += reward
@@ -263,16 +270,6 @@ class DDQN(Agent):
         self._session.run(train_step, feed_dict={self._layers[0]: state_batch,
                                                  self.__action_onehot: action_batch,
                                                  self.__y: y_batch})
-
-    def save_hyperparameters(self):
-        """
-        保存参数到parameters.json
-        """
-        params = dict(filter(lambda x: x[0][0].isupper(), self.__dict__.items()))
-        for i in [self._features, self._Q_layers]:
-            params[i.__class__.__name__] = i.save_hyperparameters()
-        with open(self.log_dir + 'parameters.json', 'w') as f:
-            json.dump(params, f, indent=4, sort_keys=True)
 
     def plot_returns(self):
         plt.plot(self.__explore_returns)
@@ -324,6 +321,7 @@ class BootstrappedDDQN(DDQN):
         self.__memory = deque(maxlen=self.MEMORY_SIZE)
         self._features = features
         self._Q_layers = Q_layers
+        self._components += [features, Q_layers]
 
         self.__head_returns = [[] for _ in range(self.N_HEADS)]
 
@@ -353,7 +351,9 @@ class BootstrappedDDQN(DDQN):
         return self.__select_action(self.__explore_head)
 
     def _perceive(self, state, action, reward, nxt_state, done):
-        self.__memory.append((state, action, reward, nxt_state, done, self.bootstrap_mask()))
+        onehot = np.zeros((self.action_n,))  # 将动作单个数值转化成onehot向量
+        onehot[action] = 1
+        self.__memory.append((state, onehot, reward, nxt_state, done, self.bootstrap_mask()))
 
     def explore(self, env, render=False):
         explore_n = self.explore_head()
@@ -398,3 +398,24 @@ class BootstrappedDDQN(DDQN):
         plt.legend()
         plt.savefig(self.log_dir + 'head_returns.png')
         plt.clf()
+
+
+class ModelBasedDDQN(BootstrappedDDQN):
+    def __init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
+                 features: FeaturesNet, Q_layers: QLayerNet, model: EnvModel,
+                 GAMMA=1, LEARNING_RATE=1E-3,
+                 MEMORY_SIZE=5000, BATCH_SIZE=100, TRAIN_REPEAT=2,
+                 N_HEADS=8):
+        BootstrappedDDQN.__init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
+                                  features, Q_layers,
+                                  GAMMA, LEARNING_RATE,
+                                  MEMORY_SIZE, BATCH_SIZE, TRAIN_REPEAT,
+                                  N_HEADS)
+
+        self.model = model
+        self._components += [model]
+        self.model.create_model(self.state_shape)
+
+    def _perceive(self, state, action, reward, nxt_state, done):
+        bonus = self.model.perceive(state, action, reward, nxt_state, done)
+        BootstrappedDDQN._perceive(self, state, action, reward + bonus, nxt_state, done)
