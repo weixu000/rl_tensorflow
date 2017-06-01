@@ -80,7 +80,7 @@ def main_flappybird():
                               [256]),
                  DuelingDQN([10, 5], [10, 5]))
     agent.save_hyperparameters()
-    run_episodes(env, agent, 5000)
+    run_episodes(agent.explore, 5000)
     agent.save_session()
 
 
