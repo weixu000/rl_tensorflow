@@ -9,7 +9,17 @@ from functools import reduce
 
 
 class Agent:
-    def __init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir):
+    def __init__(self, env, observation_shape, obervation_range, observations_in_state, action_n, log_dir):
+        """
+        :param env: 环境
+        :param observation_shape: observation数组尺寸
+        :param obervation_range: obeservation数组范围
+        :param observations_in_state: 多少个observation组成一个state
+        :param action_n: 动作个数
+        :param log_dir: log文件路径
+        """
+        self.env = env
+
         self.observation_shape = list(observation_shape)
         self.observation_range = obervation_range
         self.observations_in_state = observations_in_state
@@ -30,7 +40,7 @@ class Agent:
         os.makedirs(self.log_dir, exist_ok=True)
         self.ckpt_file = self.log_dir + 'ckpts/' + 'session.ckpt'
 
-        self._components = []  # 各部分存储，方便
+        self._components = []
 
     def normalize_observation(self, observation):
         """
@@ -42,14 +52,14 @@ class Agent:
         else:
             return observation
 
-    def exploit(self, env, render=False):
+    def exploit(self, max_timesteps=None, render=False):
         """
         充分利用Q值进行一个episode
         :return returns
         """
         raise NotImplementedError()
 
-    def explore(self, env, render=False):
+    def explore(self, max_timesteps=None, render=False):
         """
         探索一个episode
         :return returns
@@ -88,17 +98,12 @@ class Agent:
 
 
 class DDQN(Agent):
-    def __init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
+    def __init__(self, env, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
                  features: FeaturesNet, Q_layers: QLayerNet,
                  GAMMA=1.0, LEARNING_RATE=2E-3,
                  MEMORY_SIZE=5000, BATCH_SIZE=100, TRAIN_REPEAT=2,
                  EPS_INITIAL=1, EPS_END=0.1, EPS_STEP=1E-2):
         """
-        :param observation_shape: observation数组尺寸
-        :param obervation_range: obeservation数组范围
-        :param observations_in_state: 多少个observation组成一个state
-        :param action_n: 动作个数
-        :param log_dir: log文件路径
         :param features: 网络feature部分
         :param Q_layers: 网络Q值部分
         :param GAMMA: 衰减因子
@@ -109,7 +114,7 @@ class DDQN(Agent):
         :param EPS_END: epsilon终值
         """
 
-        Agent.__init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir)
+        Agent.__init__(self, env, observation_shape, obervation_range, observations_in_state, action_n, log_dir)
         self.GAMMA = GAMMA
         self.LEARNING_RATE = LEARNING_RATE
         self.TRAIN_REPEAT = TRAIN_REPEAT
@@ -174,13 +179,14 @@ class DDQN(Agent):
                     [self._session.run(h, feed_dict={self._layers[0]: [state]})[0] for h in self.__heads])
         return np.argmax(qs)
 
-    def _do_exploit(self, env, render=False):
-        ret = 0
-        observation = env.reset()
+    def _do_exploit(self, max_timesteps=None, render=False):
+        observation = self.env.reset()
         self._observation_buff = []
 
+        ret = 0
+        i_timesteps = 0
         while True:
-            if render: env.render()
+            if render: self.env.render()
             self._observation_buff.append(self.normalize_observation(observation))
 
             # 选择动作
@@ -189,13 +195,14 @@ class DDQN(Agent):
             else:
                 action = np.random.choice(self.action_n)
 
-            observation, reward, done, _ = env.step(action)
+            observation, reward, done, _ = self.env.step(action)
             ret += reward
-            if done:
+            i_timesteps += 1
+            if done or (max_timesteps and i_timesteps == max_timesteps):
                 return ret
 
-    def exploit(self, env, render=False):
-        ret = self._do_exploit(env, render)
+    def exploit(self, max_timesteps=None, render=False):
+        ret = self._do_exploit(max_timesteps, render)
         self.__exploit_returns.append(ret)
         return ret
 
@@ -212,18 +219,19 @@ class DDQN(Agent):
         onehot[action] = 1
         self.__memory.append((state, onehot, reward, nxt_state, done))
 
-    def _do_explore(self, env, render=False):
-        ret = 0
-        observation = env.reset()
+    def _do_explore(self, max_timesteps=None, render=False):
+        observation = self.env.reset()
         self._observation_buff = []
 
+        ret = 0
+        i_timesteps = 0
         while True:
-            if render: env.render()
+            if render: self.env.render()
             self._observation_buff.append(self.normalize_observation(observation))
 
             # 实行动作
             action = self._explore_action()
-            nxt_observation, reward, done, _ = env.step(action)
+            nxt_observation, reward, done, _ = self.env.step(action)
 
             # 接受经验
             if len(self._observation_buff) > self.observations_in_state:
@@ -238,11 +246,12 @@ class DDQN(Agent):
 
             observation = nxt_observation
             ret += reward
-            if done:
+            i_timesteps += 1
+            if done or (max_timesteps and i_timesteps == max_timesteps):
                 return ret
 
-    def explore(self, env, render=False):
-        ret = self._do_explore(env, render)
+    def explore(self, max_timesteps=None, render=False):
+        ret = self._do_explore(max_timesteps, render)
         self.__explore_returns.append(ret)
         return ret
 
@@ -288,28 +297,15 @@ class DDQN(Agent):
 
 
 class BootstrappedDDQN(DDQN):
-    def __init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
+    def __init__(self, env, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
                  features: FeaturesNet, Q_layers: QLayerNet,
                  GAMMA=1, LEARNING_RATE=1E-3,
                  MEMORY_SIZE=5000, BATCH_SIZE=100, TRAIN_REPEAT=2,
                  N_HEADS=8):
         """
-        :param observation_shape: observation数组尺寸
-        :param obervation_range: obeservation数组范围
-        :param observations_in_state: 多少个observation组成一个state
-        :param action_n: 动作个数
-        :param log_dir: log文件路径
-        :param features: 网络feature部分
-        :param features: 网络feature部分
-        :param Q_layers: 网络Q值部分
-        :param GAMMA: 衰减因子
-        :param LEARNING_RATE: 学习速率
-        :param MEMORY_SIZE: 记忆总量大小
-        :param BATCH_SIZE: 每次回访的个数
-        :param TRAIN_REPEAT: 每次replay重复的batch
         :param N_HEADS: heads数
         """
-        Agent.__init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir)
+        Agent.__init__(self, env, observation_shape, obervation_range, observations_in_state, action_n, log_dir)
 
         self.LEARNING_RATE = LEARNING_RATE
         self.GAMMA = GAMMA
@@ -339,13 +335,13 @@ class BootstrappedDDQN(DDQN):
     def _exploit_action(self):
         return self.__select_action(self.__best_head)
 
-    def exploit(self, env, render=False):
+    def exploit(self, max_timesteps=None, render=False):
         # 选平均回报最大的head
-        self.__best_head = self.__heads[np.argmax(
-            np.nan_to_num([np.average(self.__head_returns[i][-2:]) for i in range(self.N_HEADS)]))]
-        # print('Exploit head {}'.format(best_heads))
+        best_head = np.argmax(np.nan_to_num([np.average(self.__head_returns[i][-2:]) for i in range(self.N_HEADS)]))
+        self.__best_head = self.__heads[best_head]
+        print('Exploit head {}'.format(best_head))
 
-        return DDQN._do_exploit(self, env, render)
+        return DDQN._do_exploit(self, max_timesteps, render)
 
     def _explore_action(self):
         return self.__select_action(self.__explore_head)
@@ -355,20 +351,17 @@ class BootstrappedDDQN(DDQN):
         onehot[action] = 1
         self.__memory.append((state, onehot, reward, nxt_state, done, self.bootstrap_mask()))
 
-    def explore(self, env, render=False):
-        explore_n = self.explore_head()
+    def explore(self, max_timesteps=None, render=False):
+        ps = np.nan_to_num([np.average(self.__head_returns[i]) for i in range(self.N_HEADS)])
+        ps = np.exp(np.nan_to_num(2 * ps / ps.sum()))
+        explore_n = np.random.choice(self.N_HEADS, p=ps / ps.sum())
         self.__explore_head = self.__heads[explore_n]
-        # print('Explore head {}'.format(explore_head))
+        print('Explore head {}'.format(explore_n))
 
-        ret = DDQN._do_explore(self, env, render)
+        ret = DDQN._do_explore(self, max_timesteps, render)
         # 更新heads回报
         self.__head_returns[explore_n].append(ret)
         return ret
-
-    def explore_head(self):
-        ps = np.nan_to_num([np.average(self.__head_returns[i]) for i in range(self.N_HEADS)])
-        ps = np.exp(np.nan_to_num(2 * ps / ps.sum()))
-        return np.random.choice(self.N_HEADS, p=ps / ps.sum())
 
     def bootstrap_mask(self):
         return np.random.choice([0, 1], self.N_HEADS)
@@ -401,17 +394,17 @@ class BootstrappedDDQN(DDQN):
 
 
 class ModelBasedDDQN(BootstrappedDDQN):
-    def __init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
+    def __init__(self, env, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
                  features: FeaturesNet, Q_layers: QLayerNet, model: EnvModel,
                  GAMMA=1, LEARNING_RATE=1E-3,
-                 MEMORY_SIZE=5000, BATCH_SIZE=100, TRAIN_REPEAT=2,
-                 N_HEADS=8):
-        BootstrappedDDQN.__init__(self, observation_shape, obervation_range, observations_in_state, action_n, log_dir,
+                 MEMORY_SIZE=5000, BATCH_SIZE=50, TRAIN_REPEAT=2,
+                 N_HEADS=10):
+        BootstrappedDDQN.__init__(self, env, observation_shape, obervation_range, observations_in_state, action_n,
+                                  log_dir,
                                   features, Q_layers,
                                   GAMMA, LEARNING_RATE,
                                   MEMORY_SIZE, BATCH_SIZE, TRAIN_REPEAT,
                                   N_HEADS)
-
         self.model = model
         self._components += [model]
         self.model.create_model(self.state_shape)

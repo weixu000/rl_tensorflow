@@ -5,34 +5,21 @@ from DQN.network import *
 from flappy_bird.flappybird import FlappyBirdEnv
 
 
-def train_episodes(env, agent, n_episodes, render=False):
+def run_episodes(play, n_episodes, max_timesteps=None, render=False):
     returns = []
     for _ in range(n_episodes):
-        returns.append(agent.explore(env, render))
-        # print('Train with reward {:.2f}'.format(returns[-1]))
+        returns.append(play(max_timesteps, render))
     return returns
 
 
-def test_episodes(env, agent, n_episodes, goal, render=False):
-    returns = []
-    for _ in range(n_episodes): returns.append(agent.exploit(env, render))
-    aver = np.average(returns)
-    # print('Test with average reward {:.2f}'.format(aver))
-    if aver >= goal:
-        # print('The environment is considered solved')
-        return aver, True
-    else:
-        return aver, False
-
-
-ENV_NAME = 'CartPole-v0'
-N_TEST = 100
-GOAL = 195
-
-
-# ENV_NAME = 'CartPole-v1'
+# ENV_NAME = 'CartPole-v0'
 # N_TEST = 100
-# GOAL = 475
+# GOAL = 195
+
+
+ENV_NAME = 'CartPole-v1'
+N_TEST = 100
+GOAL = 475
 
 
 # ENV_NAME = 'MountainCar-v0'
@@ -46,30 +33,30 @@ GOAL = 195
 
 def main_gym():
     env = gym.make(ENV_NAME)
-    # env._max_episode_steps = float('inf')  # 打破最大step数限制
+    # env._max_episode_steps = None  # 打破最大step数限制
     log_dir = '/'.join(['log', ENV_NAME, time.strftime('%m-%d-%H-%M')]) + '/'
 
-    # agent = DDQN(env.observation_space.shape, None, 1,
+    # agent = DDQN(env, env.observation_space.shape, None, 1,
     #              env.action_space.n, log_dir,
     #              FCFeatures([20, 20]),
     #              DuelingDQN([10, 5], [10, 5]))
-    # agent = BootstrappedDDQN(env.observation_space.shape, None, 1,
-    #                          env.action_space.n, log_dir,
-    #                          FCFeatures([20, 20]),
-    #                          DuelingDQN([10, 5], [10, 5]))
-    agent = ModelBasedDDQN(env.observation_space.shape, None, 1,
-                           env.action_space.n, log_dir,
-                           FCFeatures([20, 20]),
-                           DuelingDQN([10, 5], [10, 5]),
-                           EnvModel())
+    agent = BootstrappedDDQN(env, env.observation_space.shape, None, 1,
+                             env.action_space.n, log_dir,
+                             FCFeatures([10, 5]),
+                             DuelingDQN([3], [3]))
+    # agent = ModelBasedDDQN(env, env.observation_space.shape, None, 1,
+    #                        env.action_space.n, log_dir,
+    #                        FCFeatures([10, 5]),
+    #                        DuelingDQN([3], [3]),
+    #                        EnvModel())
 
     agent.save_hyperparameters()
     for i in range(50):
-        train_return = train_episodes(env, agent, 10)
+        train_return = run_episodes(agent.explore, 10, None, True)
         print('Train {} with rewards {}'.format(i, train_return))
-        test_return, passed = test_episodes(env, agent, N_TEST, GOAL)
-        print('Test {} with rewards {}'.format(i, test_return))
-        if passed:
+        test_return = run_episodes(agent.exploit, N_TEST, None, False)
+        print('Test {} with rewards {}'.format(i, np.average(test_return)))
+        if np.average(test_return) >= GOAL:
             print('The environment is considered solved')
             break
     else:
@@ -82,7 +69,7 @@ def main_gym():
 def main_flappybird():
     env = FlappyBirdEnv()
     log_dir = '/'.join(['log', 'FappyBird', '0']) + '/'
-    agent = DDQN(env.observation_shape, [0, 255], 4,
+    agent = DDQN(env, env.observation_shape, [0, 255], 4,
                  env.action_n, log_dir,
                  ConvFeatures([('conv', {'weight': [8, 8, 4, 32], 'strides': [4, 4]}),
                                ('pooling', {'ksize': [2, 2], 'strides': [2, 2]}),
@@ -91,10 +78,9 @@ def main_flappybird():
                                ('conv', {'weight': [3, 3, 64, 64], 'strides': [1, 1]}),
                                ('pooling', {'ksize': [2, 2], 'strides': [2, 2]})],
                               [256]),
-                 OriginalQLayer([256]),
-                 1E-3, 0.5, 0.001, 1E-4)
+                 DuelingDQN([10, 5], [10, 5]))
     agent.save_hyperparameters()
-    train_episodes(env, agent, 5000)
+    run_episodes(env, agent, 5000)
     agent.save_session()
 
 

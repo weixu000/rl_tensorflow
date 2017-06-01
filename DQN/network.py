@@ -191,17 +191,21 @@ class DuelingDQN(QLayerNet):
 
 
 class EnvModel:
-    def __init__(self, HIDDEN_LAYERS=[20, 20], BANK_SIZE=2000, LEARNING_RATE=1E-3, RATIO=0.2):
+    def __init__(self, HIDDEN_LAYERS=[20, 10], LEARNING_RATE=1E-3, BANK_SIZE=2000, BATCH_SIZE=100, TRAIN_WHEN=20,
+                 RATIO=0.1):
         self.HIDDEN_LAYERS = HIDDEN_LAYERS
         self.LEARNING_RATE = LEARNING_RATE
+        self.BATCH_SIZE = BATCH_SIZE
+        self.TRAIN_WHEN = TRAIN_WHEN
         self.RATIO = RATIO
+
         self._bank = deque(maxlen=BANK_SIZE)
-        self.reward_aver = np.array([0., 0.])
-        self.loss_aver = np.array([0., 0.])
+        self.losses = []
+        self.n_perceived = 0
 
     def create_model(self, state_shape):
         self.input_shape = [state_shape[0] + 1]
-        self.output_shape = [state_shape[0] + 2]
+        self.output_shape = [state_shape[0] + 1]
 
         self._graph = tf.Graph()
         self._layers = []
@@ -218,21 +222,17 @@ class EnvModel:
             self._session.run(tf.global_variables_initializer())
 
     def perceive(self, state, action, reward, nxt_state, done):
-        self.reward_aver += [reward, 1]
-        sample_in, sample_out = list(state) + [action], list(nxt_state) + [reward, float(done)]
+        self.n_perceived += 1
+        sample_in, sample_out = list(state) + [action], list(nxt_state) + [reward]
         self._bank.append((sample_in, sample_out))
-        self.train()
+        if self.n_perceived % self.TRAIN_WHEN == 0: self.train()
         loss = np.abs(self._session.run(self._loss, feed_dict={self._layers[0]: [sample_in],
                                                                self._target: [sample_out]}))
-        self.loss_aver += [loss, 1]
-        return loss / (self.loss_aver[0] / self.loss_aver[1]) * (self.reward_aver[0] / self.reward_aver[1]) * self.RATIO
-
-    def predict(self, state, action):
-        *nxt_state, reward, done = self._session.run(self._layers[-1], feed_dict={self._layers[0]: [state + [action]]})
-        return nxt_state, reward, bool > 0.5
+        self.losses.append(loss)
+        return loss * self.RATIO
 
     def train(self):
-        batch_ind = np.random.choice(len(self._bank), 50)
+        batch_ind = np.random.choice(len(self._bank), self.BATCH_SIZE)
         batch = list(map(lambda i: self._bank[i], batch_ind))
         batch = [np.array([m[i] for m in batch]) for i in range(2)]
         self._session.run(self._train_step, feed_dict={self._layers[0]: batch[0],
