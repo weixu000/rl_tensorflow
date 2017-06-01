@@ -16,7 +16,7 @@ class FlappyBird:
                             pygame.image.load(os.path.dirname(__file__) + "/assets/dead.png")]
         self.wallUp = pygame.image.load(os.path.dirname(__file__) + "/assets/bottom.png").convert_alpha()
         self.wallDown = pygame.image.load(os.path.dirname(__file__) + "/assets/top.png").convert_alpha()
-        self.gap = 130
+        self.gap = 150
         self.wallx = 400
         self.birdY = 200
         self.jump = 0
@@ -30,7 +30,7 @@ class FlappyBird:
         self.font = pygame.font.SysFont("Arial", 50)
 
     def updateWalls(self):
-        self.wallx -= 5
+        self.wallx -= 2
         if self.wallx < -80:
             self.wallx = 400
             self.counter += 1
@@ -73,7 +73,7 @@ class FlappyBird:
         self.jumpSpeed = 10
 
     def update(self, render_human=True):
-        self.screen.fill((255, 255, 255))
+        self.screen.fill((0, 0, 0))
         if render_human:
             self.screen.blit(self.background, (0, 0))
         self.screen.blit(self.wallUp,
@@ -125,8 +125,7 @@ class FlappyBirdEnv:
         pygame.event.get()  # 出队所有事件，防止卡死
         if self.game.dead: raise Exception('Flappy bird is dead and need reset')
         if action == 1: self.game.jumpAction()
-        # prev_cnt = self.game.counter
-        self.game.update(False)
+        for _ in range(2): self.game.update(False)
         observation = self.get_observation()
         done = self.game.dead
         reward = -56.0 if done else 1.0

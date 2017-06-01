@@ -174,10 +174,13 @@ class DDQN(Agent):
             self.init_session()
 
     def _exploit_action(self):
-        state = np.array(self._observation_buff[-self.observations_in_state:]).reshape(self.state_shape)
-        qs = reduce(lambda x, y: x + y,
-                    [self._session.run(h, feed_dict={self._layers[0]: [state]})[0] for h in self.__heads])
-        return np.argmax(qs)
+        if len(self._observation_buff) >= self.observations_in_state:
+            state = np.array(self._observation_buff[-self.observations_in_state:]).reshape(self.state_shape)
+            return np.argmax(reduce(lambda x, y: x + y,
+                                    [self._session.run(h, feed_dict={self._layers[0]: [state]})[0]
+                                     for h in self.__heads]))
+        else:
+            return np.random.choice(self.action_n)
 
     def _do_exploit(self, max_timesteps=None, render=False):
         observation = self.env.reset()
@@ -190,12 +193,9 @@ class DDQN(Agent):
             self._observation_buff.append(self.normalize_observation(observation))
 
             # 选择动作
-            if len(self._observation_buff) >= self.observations_in_state:
-                action = self._exploit_action()
-            else:
-                action = np.random.choice(self.action_n)
-
+            action = self._exploit_action()
             observation, reward, done, _ = self.env.step(action)
+
             ret += reward
             i_timesteps += 1
             if done or (max_timesteps and i_timesteps == max_timesteps):
@@ -327,19 +327,23 @@ class BootstrappedDDQN(DDQN):
         self.__explore_head = self.__heads[0]
 
     def __select_action(self, head):
-        state = np.array(self._observation_buff[-self.observations_in_state:]).reshape(self.state_shape)
-        return np.argmax(reduce(lambda x, y: x + y,
-                                [self._session.run(h, feed_dict={self._layers[0]: [state]})[0]
-                                 for h in head]))
+        if len(self._observation_buff) >= self.observations_in_state:
+            state = np.array(self._observation_buff[-self.observations_in_state:]).reshape(self.state_shape)
+            return np.argmax(reduce(lambda x, y: x + y,
+                                    [self._session.run(h, feed_dict={self._layers[0]: [state]})[0]
+                                     for h in head]))
+        else:
+            return np.random.choice(self.action_n)
 
     def _exploit_action(self):
         return self.__select_action(self.__best_head)
 
     def exploit(self, max_timesteps=None, render=False):
         # 选平均回报最大的head
-        best_head = np.argmax(np.nan_to_num([np.average(self.__head_returns[i][-2:]) for i in range(self.N_HEADS)]))
+        # best_head = np.argmax(np.nan_to_num([np.average(self.__head_returns[i][-2:]) for i in range(self.N_HEADS)]))
+        best_head = np.argmax(np.nan_to_num([np.average(self.__head_returns[i][-1:]) for i in range(self.N_HEADS)]))
         self.__best_head = self.__heads[best_head]
-        print('Exploit head {}'.format(best_head))
+        # print('Exploit head {}'.format(best_head))
 
         return DDQN._do_exploit(self, max_timesteps, render)
 
@@ -352,11 +356,12 @@ class BootstrappedDDQN(DDQN):
         self.__memory.append((state, onehot, reward, nxt_state, done, self.bootstrap_mask()))
 
     def explore(self, max_timesteps=None, render=False):
-        ps = np.nan_to_num([np.average(self.__head_returns[i]) for i in range(self.N_HEADS)])
-        ps = np.exp(np.nan_to_num(2 * ps / ps.sum()))
-        explore_n = np.random.choice(self.N_HEADS, p=ps / ps.sum())
+        # ps = np.nan_to_num([np.average(self.__head_returns[i]) for i in range(self.N_HEADS)])
+        # ps = np.exp(np.nan_to_num(2 * ps / ps.sum()))
+        # explore_n = np.random.choice(self.N_HEADS, p=ps / ps.sum())
+        explore_n = np.random.choice(self.N_HEADS)
         self.__explore_head = self.__heads[explore_n]
-        print('Explore head {}'.format(explore_n))
+        # print('Explore head {}'.format(explore_n))
 
         ret = DDQN._do_explore(self, max_timesteps, render)
         # 更新heads回报
