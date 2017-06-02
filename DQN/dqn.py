@@ -80,7 +80,7 @@ class Agent:
         """
         恢复网络
         """
-        if os.path.exists(self.ckpt_file):
+        if os.path.exists(os.path.split(self.ckpt_file)[0]):
             # 读取已经保存的网络
             self.saver.restore(self._session, self.ckpt_file)
         else:

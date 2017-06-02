@@ -2,13 +2,14 @@ import time
 import gym
 from DQN.dqn import *
 from DQN.network import *
-from flappy_bird.flappybird import FlappyBirdEnv
+from flappy_bird.flappybird import FlappyBirdEnvRaw, FlappyBirdEnv
 
 
 def run_episodes(play, n_episodes, max_timesteps=None, render=False):
     returns = []
     for _ in range(n_episodes):
         returns.append(play(max_timesteps, render))
+        print(returns[-1])
     return returns
 
 
@@ -42,8 +43,8 @@ def main_gym():
     #              DuelingDQN([10, 5], [10, 5]))
     agent = BootstrappedDDQN(env, env.observation_space.shape, None, 1,
                              env.action_space.n, log_dir,
-                             FCFeatures([10, 5]),
-                             DuelingDQN([3], [3]))
+                             FCFeatures([20, 20]),
+                             DuelingDQN([10, 5], [10, 5]))
     # agent = ModelBasedDDQN(env, env.observation_space.shape, None, 1,
     #                        env.action_space.n, log_dir,
     #                        FCFeatures([10, 5]),
@@ -69,20 +70,25 @@ def main_gym():
 def main_flappybird():
     env = FlappyBirdEnv()
     log_dir = '/'.join(['log', 'FappyBird', '0']) + '/'
-    agent = DDQN(env, env.observation_shape, [0, 255], 4,
-                 env.action_n, log_dir,
-                 ConvFeatures([('conv', {'weight': [8, 8, 4, 32], 'strides': [4, 4]}),
-                               ('pooling', {'ksize': [2, 2], 'strides': [2, 2]}),
-                               ('conv', {'weight': [4, 4, 32, 64], 'strides': [2, 2]}),
-                               ('pooling', {'ksize': [2, 2], 'strides': [2, 2]}),
-                               ('conv', {'weight': [3, 3, 64, 64], 'strides': [1, 1]}),
-                               ('pooling', {'ksize': [2, 2], 'strides': [2, 2]})],
-                              [256]),
-                 DuelingDQN([10, 5], [10, 5]))
+    # agent = BootstrappedDDQN(env, env.observation_shape, [0, 255], 4,
+    #                          env.action_n, log_dir,
+    #                          ConvFeatures([('conv', {'weight': [8, 8, 4, 32], 'strides': [4, 4]}),
+    #                                        ('pooling', {'ksize': [2, 2], 'strides': [2, 2]}),
+    #                                        ('conv', {'weight': [4, 4, 32, 64], 'strides': [2, 2]}),
+    #                                        ('pooling', {'ksize': [2, 2], 'strides': [2, 2]}),
+    #                                        ('conv', {'weight': [3, 3, 64, 64], 'strides': [1, 1]}),
+    #                                        ('pooling', {'ksize': [2, 2], 'strides': [2, 2]})],
+    #                                       [256]),
+    #                          DuelingDQN([10, 5], [10, 5]), LEARNING_RATE=5E-4, BATCH_SIZE=50)
+    agent = BootstrappedDDQN(env, env.observation_shape, None, 2,
+                             env.action_n, log_dir,
+                             FCFeatures([20, 20]),
+                             DuelingDQN([10, 5], [10, 5]))
     agent.save_hyperparameters()
-    run_episodes(agent.explore, 5000)
+    run_episodes(agent.explore, 1000)
     agent.save_session()
 
 
 if __name__ == "__main__":
-    main_gym()
+    # main_gym()
+    main_flappybird()

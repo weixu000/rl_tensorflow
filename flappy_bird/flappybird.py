@@ -110,7 +110,7 @@ class FlappyBird:
 class FlappyBirdEnv:
     def __init__(self):
         self.action_n = 2
-        self.observation_shape = [80, 80]
+        self.observation_shape = [2]
         self.game = FlappyBird()
 
     def reset(self):
@@ -125,11 +125,22 @@ class FlappyBirdEnv:
         pygame.event.get()  # 出队所有事件，防止卡死
         if self.game.dead: raise Exception('Flappy bird is dead and need reset')
         if action == 1: self.game.jumpAction()
-        for _ in range(2): self.game.update(False)
+        self.game.update(False)
         observation = self.get_observation()
         done = self.game.dead
-        reward = -56.0 if done else 1.0
+        reward = float(10 if self.game.wallx <= self.game.bird[0] <= self.game.wallx + 90 else 1)
         return observation, reward, done, None
+
+    def get_observation(self):
+        # print([self.game.wallx - 65, 360 + self.game.gap - self.game.offset + 10 - self.game.birdY])
+        return np.array(
+            [self.game.wallx - self.game.bird[0], 360 + self.game.gap - self.game.offset + 10 - self.game.birdY])
+
+
+class FlappyBirdEnvRaw(FlappyBirdEnv):
+    def __init__(self):
+        FlappyBirdEnv.__init__(self)
+        self.observation_shape = [80, 80]
 
     def get_observation(self):
         image = Image.fromarray(pygame.surfarray.array3d(self.game.screen).transpose((1, 0, 2)))
